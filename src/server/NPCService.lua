@@ -402,6 +402,110 @@ local function createNPCModel(npc, spawnPart)
 	return model
 end
 
+local function ensureHealthBillboard(npc)
+	if not npc.Model or not npc.Model.PrimaryPart then
+		return nil
+	end
+
+	local existing = npc.Model:FindFirstChild("RevealedHealthBillboard")
+
+	if existing then
+		return existing
+	end
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "RevealedHealthBillboard"
+	billboard.Adornee = npc.Model.PrimaryPart
+	billboard.AlwaysOnTop = true
+	billboard.LightInfluence = 0
+	billboard.MaxDistance = 90
+	billboard.Size = UDim2.fromOffset(150, 34)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, 5.4, 0)
+	billboard.Parent = npc.Model
+
+	local background = Instance.new("Frame")
+	background.Name = "Background"
+	background.BackgroundColor3 = Color3.fromRGB(8, 14, 10)
+	background.BackgroundTransparency = 0.12
+	background.BorderSizePixel = 0
+	background.Size = UDim2.fromScale(1, 1)
+	background.Parent = billboard
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(105, 255, 132)
+	stroke.Thickness = 1
+	stroke.Transparency = 0.15
+	stroke.Parent = background
+
+	local barBack = Instance.new("Frame")
+	barBack.Name = "BarBack"
+	barBack.BackgroundColor3 = Color3.fromRGB(36, 52, 40)
+	barBack.BorderSizePixel = 0
+	barBack.Position = UDim2.fromOffset(8, 20)
+	barBack.Size = UDim2.new(1, -16, 0, 7)
+	barBack.Parent = background
+
+	local barFill = Instance.new("Frame")
+	barFill.Name = "BarFill"
+	barFill.BackgroundColor3 = Color3.fromRGB(105, 255, 132)
+	barFill.BorderSizePixel = 0
+	barFill.Size = UDim2.fromScale(1, 1)
+	barFill.Parent = barBack
+
+	local label = Instance.new("TextLabel")
+	label.Name = "HealthText"
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.TextColor3 = Color3.fromRGB(226, 255, 230)
+	label.TextSize = 11
+	label.TextXAlignment = Enum.TextXAlignment.Center
+	label.TextYAlignment = Enum.TextYAlignment.Center
+	label.Size = UDim2.new(1, -8, 0, 18)
+	label.Position = UDim2.fromOffset(4, 1)
+	label.Text = ""
+	label.Parent = background
+
+	return billboard
+end
+
+local function updateHealthBillboard(npc)
+	local billboard = ensureHealthBillboard(npc)
+
+	if not billboard then
+		return
+	end
+
+	local background = billboard:FindFirstChild("Background")
+	local label = background and background:FindFirstChild("HealthText")
+	local barBack = background and background:FindFirstChild("BarBack")
+	local barFill = barBack and barBack:FindFirstChild("BarFill")
+	local health = npc.Health or 0
+	local maxHealth = math.max(npc.MaxHealth or health, 1)
+	local ratio = math.clamp(health / maxHealth, 0, 1)
+
+	if label then
+		if npc.Eliminated then
+			label.Text = tostring(npc.AlienType or "ENTITY") .. " DOWN"
+		else
+			label.Text = tostring(npc.AlienType or "ENTITY") .. " " .. math.ceil(health) .. "/" .. math.ceil(maxHealth)
+		end
+	end
+
+	if barFill then
+		barFill.Size = UDim2.fromScale(ratio, 1)
+
+		if npc.Eliminated then
+			barFill.BackgroundColor3 = Color3.fromRGB(80, 90, 82)
+		elseif ratio <= 0.3 then
+			barFill.BackgroundColor3 = Color3.fromRGB(255, 102, 96)
+		elseif ratio <= 0.6 then
+			barFill.BackgroundColor3 = Color3.fromRGB(255, 205, 88)
+		else
+			barFill.BackgroundColor3 = Color3.fromRGB(105, 255, 132)
+		end
+	end
+end
+
 function NPCService.Init(sharedContext)
 	context = sharedContext
 	context.NPCs = npcs
@@ -599,6 +703,8 @@ function NPCService.MarkRevealed(npcId, alienType)
 		light.Parent = npc.Model.PrimaryPart
 	end
 
+	updateHealthBillboard(npc)
+
 	return npc
 end
 
@@ -611,6 +717,7 @@ function NPCService.UpdateRevealedHealth(npcId, health, maxHealth)
 
 	npc.Health = health
 	npc.MaxHealth = maxHealth
+	updateHealthBillboard(npc)
 
 	return npc
 end
@@ -624,6 +731,7 @@ function NPCService.MarkEliminated(npcId)
 
 	npc.Eliminated = true
 	npc.Health = 0
+	updateHealthBillboard(npc)
 
 	if npc.Model then
 		for _, descendant in ipairs(npc.Model:GetDescendants()) do

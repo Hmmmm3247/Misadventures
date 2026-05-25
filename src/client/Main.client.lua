@@ -19,6 +19,7 @@ local MissionWarning = Remotes:WaitForChild("MissionWarning")
 local RoundResults = Remotes:WaitForChild("RoundResults")
 local SelectClass = Remotes:WaitForChild("SelectClass")
 local UseClassAbility = Remotes:WaitForChild("UseClassAbility")
+local PlacePing = Remotes:WaitForChild("PlacePing")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -124,7 +125,7 @@ suspectLabel.LayoutOrder = 11
 
 local feedbackLabel = createLabel("Feedback", 14, Color3.fromRGB(210, 214, 205))
 feedbackLabel.Size = UDim2.new(1, 0, 0, 34)
-feedbackLabel.LayoutOrder = 12
+feedbackLabel.LayoutOrder = 13
 
 local resultLabel = createLabel("Result", 20, Color3.fromRGB(215, 232, 190))
 resultLabel.Font = Enum.Font.GothamBold
@@ -216,6 +217,7 @@ abilityButton.Parent = panel
 
 local abilityCooldownEndsAt = 0
 local combatCooldownEndsAt = 0
+local pingCooldownEndsAt = 0
 local abilityButtonBaseText = "Use Class Ability"
 
 local function setAbilityCooldown(seconds)
@@ -225,6 +227,73 @@ end
 local function setCombatCooldown(seconds)
 	combatCooldownEndsAt = math.max(combatCooldownEndsAt, os.clock() + seconds)
 end
+
+local pingPanel = Instance.new("Frame")
+pingPanel.Name = "PingPanel"
+pingPanel.BackgroundTransparency = 1
+pingPanel.Size = UDim2.new(1, 0, 0, 34)
+pingPanel.LayoutOrder = 12
+pingPanel.Parent = panel
+
+local pingLayout = Instance.new("UIListLayout")
+pingLayout.FillDirection = Enum.FillDirection.Horizontal
+pingLayout.Padding = UDim.new(0, 6)
+pingLayout.SortOrder = Enum.SortOrder.LayoutOrder
+pingLayout.Parent = pingPanel
+
+local pingButtons = {}
+
+local function createPingButton(pingType, labelText)
+	local button = Instance.new("TextButton")
+	button.Name = pingType .. "PingButton"
+	button.Size = UDim2.new(0, 128, 1, 0)
+	button.BackgroundColor3 = Color3.fromRGB(35, 48, 48)
+	button.BorderSizePixel = 0
+	button.Font = Enum.Font.GothamBold
+	button.Text = labelText
+	button.TextColor3 = Color3.fromRGB(224, 238, 232)
+	button.TextSize = 12
+	button.TextWrapped = true
+	button.Parent = pingPanel
+	pingButtons[pingType] = button
+
+	button.Activated:Connect(function()
+		if os.clock() < pingCooldownEndsAt then
+			return
+		end
+
+		feedbackLabel.Text = "Sending ping: " .. labelText
+
+		task.spawn(function()
+			local success, result = pcall(function()
+				return PlacePing:InvokeServer(pingType)
+			end)
+
+			if not success then
+				feedbackLabel.Text = "Ping failed"
+				return
+			end
+
+			if result and result.Accepted then
+				if result.Cooldown then
+					pingCooldownEndsAt = math.max(pingCooldownEndsAt, os.clock() + result.Cooldown)
+				end
+
+				feedbackLabel.Text = "PING SENT: " .. tostring(result.Label or pingType)
+			else
+				if result and result.CooldownRemaining then
+					pingCooldownEndsAt = math.max(pingCooldownEndsAt, os.clock() + result.CooldownRemaining)
+				end
+
+				feedbackLabel.Text = "PING BLOCKED: " .. tostring(result and result.Reason or "Unknown")
+			end
+		end)
+	end)
+end
+
+createPingButton("Suspicious", "Suspicious")
+createPingButton("Clue", "Clue")
+createPingButton("Help", "Help")
 
 abilityButton.Activated:Connect(function()
 	if os.clock() < abilityCooldownEndsAt then
@@ -263,6 +332,7 @@ task.spawn(function()
 	while gui.Parent do
 		local remaining = math.max(0, abilityCooldownEndsAt - os.clock())
 		local combatRemaining = math.max(0, combatCooldownEndsAt - os.clock())
+		local pingRemaining = math.max(0, pingCooldownEndsAt - os.clock())
 
 		if remaining > 0 then
 			abilityButton.Text = "Ability: " .. tostring(math.ceil(remaining)) .. "s"
@@ -280,6 +350,20 @@ task.spawn(function()
 			combatStatusLabel.Text = "WEAPON: RECALIBRATING " .. tostring(math.ceil(combatRemaining * 10) / 10) .. "s"
 		else
 			combatStatusLabel.Text = "WEAPON: READY"
+		end
+
+		for pingType, button in pairs(pingButtons) do
+			if pingRemaining > 0 then
+				button.Text = tostring(math.ceil(pingRemaining)) .. "s"
+				button.AutoButtonColor = false
+				button.BackgroundColor3 = Color3.fromRGB(34, 39, 39)
+				button.TextColor3 = Color3.fromRGB(145, 158, 152)
+			else
+				button.Text = pingType
+				button.AutoButtonColor = true
+				button.BackgroundColor3 = Color3.fromRGB(35, 48, 48)
+				button.TextColor3 = Color3.fromRGB(224, 238, 232)
+			end
 		end
 
 		task.wait(0.2)

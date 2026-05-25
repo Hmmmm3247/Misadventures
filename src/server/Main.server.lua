@@ -6,7 +6,9 @@ local ServerFolder = script.Parent
 local Services = {
 	RemoteService = require(ServerFolder.RemoteService),
 	MapService = require(ServerFolder.MapService),
+	MapEventService = require(ServerFolder.MapEventService),
 	PlayerService = require(ServerFolder.PlayerService),
+	PlayerPingService = require(ServerFolder.PlayerPingService),
 	NPCService = require(ServerFolder.NPCService),
 	AlienService = require(ServerFolder.AlienService),
 	ClueService = require(ServerFolder.ClueService),
@@ -34,7 +36,9 @@ local context = {
 local initOrder = {
 	"RemoteService",
 	"MapService",
+	"MapEventService",
 	"PlayerService",
+	"PlayerPingService",
 	"NPCService",
 	"AlienService",
 	"ClueService",

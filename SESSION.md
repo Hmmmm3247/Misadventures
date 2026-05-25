@@ -21,6 +21,18 @@ The current build is a simple playable vertical slice:
 
 The server owns round state, alien identity, clue truth, accusation validation, combat damage, player health checks, and win/loss outcomes.
 
+## Latest Changes
+
+- Added `README.md` with Windows setup, Rojo run steps, Studio connection steps, quick test notes, validation commands, and MVP scope reminders.
+- Added `rojo` to `rokit.toml` so Windows setup can install the pinned Rojo CLI with `rokit install`.
+- Added a simple server-created world health bar for revealed aliens in `NPCService`.
+- Revealed alien health bars update after damage and switch to a down state when eliminated.
+- Added `MAP_DESIGN.md` with FarmTown zones, story shape, player fantasy, clue logic, and future alien direction.
+- Added non-runtime alien type/profile definitions in `Config.lua` for future Galloid variants and later factions.
+- Added `MapLayout.ZoneRoles` and zone metadata so FarmTown landmarks have explicit gameplay jobs.
+- Added `MapEventService` for server-owned active-round radio/scanner/audio map pings that point players toward zones without revealing alien identities.
+- Added `PlayerPingService`, `PlacePing`, and three simple HUD pings: Suspicious, Clue, and Help.
+
 ## Source Layout
 
 - `default.project.json`: Rojo DataModel mapping.
@@ -39,7 +51,9 @@ Rojo currently maps:
 - `Main.server.lua`: bootstraps all server services in a fixed order.
 - `RemoteService.lua`: creates and owns all remotes under `ReplicatedStorage.ChickenAlienHuntRemotes`.
 - `MapService.lua`: builds the generated/authored test arena under `Workspace.ChickenAlienHunt`.
+- `MapEventService.lua`: broadcasts active-round FarmTown map pings from configured zones.
 - `PlayerService.lua`: assigns MVP classes, applies health/speed stats, and sends safe player snapshots to the HUD.
+- `PlayerPingService.lua`: validates player callouts and creates temporary world ping markers.
 - `NPCService.lua`: spawns simple physical NPC models, tracks public NPC state, and owns accuse prompts.
 - `AlienService.lua`: secretly selects aliens, stores private alien records, reveals aliens, handles alien attacks, tracks alien health, and marks eliminations.
 - `ClueService.lua`: spawns clue objects, handles clue inspection, tracks discovered traits, and builds suspect snapshots.
@@ -206,6 +220,7 @@ Rojo currently maps:
   - target is not eliminated
 - Hunter currently deals bonus combat damage.
 - Alien health and elimination state are server-owned.
+- Revealed aliens now display a simple replicated world health bar above the NPC model.
 
 ### Alien Attacks
 
@@ -298,6 +313,8 @@ The current `Alien Zapper` combat path uses a server-created Tool activation, no
 
 ## How To Run Later
 
+Windows setup is now documented in `README.md`.
+
 Install tools:
 
 ```bash
@@ -373,15 +390,14 @@ luau src/shared/Config.lua
 
 These passed.
 
-Note: the installed `luau` binary does not support `--check`. Running server/client files directly outside Roblox fails on expected Roblox globals like `game`, `Instance`, `Color3`, and `Vector3`, so full behavior validation still needs Studio.
+Note: the installed `luau` binary does not support `--check`. Running server/client files directly outside Roblox fails on expected Roblox globals like `game`, `Instance`, `Color3`, and `Vector3`, so full behavior validation still needs Studio. `luau src/server/NPCService.lua` currently parses and then fails at runtime on `game:GetService`, which is expected outside Roblox.
 
 ## Missing Or Not Built Yet
 
 ### High Priority
 
 - Class abilities are first-pass only and need Studio tuning.
-- Better combat feedback:
-  - better visual treatment for revealed alien health
+- Studio-test the new revealed-alien world health bar.
 - A better accusation testing path:
   - debug accuse UI
   - nearby NPC list
@@ -439,12 +455,12 @@ Note: the installed `luau` binary does not support `--check`. Running server/cli
 
 ## Suggested Next Sprint
 
-Best next task: Studio-tune the class abilities and combat feedback.
+Best next task: Studio-tune the class abilities, combat feedback, and revealed-alien health bars.
 
 Recommended next implementation:
 
-1. Add a better revealed-alien health presentation after Studio testing confirms the data path.
-2. Tune NPC wandering and alien tell frequencies in Studio.
-3. Add revealed-alien chase movement after static behavior is stable.
+1. Tune NPC wandering and alien tell frequencies in Studio.
+2. Add revealed-alien chase movement after static behavior is stable.
+3. Add a better accusation testing path for local MVP iteration.
 4. Add suspect board polish.
 5. Add sound/animation polish for ability feedback.

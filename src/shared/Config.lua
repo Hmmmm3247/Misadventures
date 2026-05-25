@@ -95,6 +95,71 @@ Config.WrongAccusation = {
 	Warning = "FALSE TARGET. TIMER REDUCED. ENTITY AGGRESSION RISING."
 }
 
+Config.MapEvents = {
+	Enabled = true,
+	MinInterval = 28,
+	MaxInterval = 46,
+	Events = {
+		{
+			Zone = "Barn",
+			EventType = "Radio",
+			Severity = "MapPing",
+			Text = "RADIO PING: barn static rising. Watch movement near the feed crates."
+		},
+		{
+			Zone = "ChickenCoop",
+			EventType = "Audio",
+			Severity = "MapPing",
+			Text = "AUDIO FLAG: faint clucking reported near the chicken coop."
+		},
+		{
+			Zone = "FeedSilo",
+			EventType = "Radio",
+			Severity = "MapPing",
+			Text = "RADIO PING: broken speech looping from the silo channel."
+		},
+		{
+			Zone = "TownWell",
+			EventType = "Scanner",
+			Severity = "MapPing",
+			Text = "SCANNER PING: cold movement around the town well."
+		},
+		{
+			Zone = "ObservationPole",
+			EventType = "Scanner",
+			Severity = "MapPing",
+			Text = "MOTION PING: someone near the observation pole stopped moving."
+		},
+		{
+			Zone = "GeneralStore",
+			EventType = "Radio",
+			Severity = "MapPing",
+			Text = "RADIO PING: store ledger signal repeating without a source."
+		}
+	}
+}
+
+Config.PlayerPings = {
+	Enabled = true,
+	Cooldown = 4,
+	WorldMarkersEnabled = true,
+	MarkerDuration = 8,
+	Types = {
+		Suspicious = {
+			Label = "Suspicious",
+			Color = { 255, 210, 80 }
+		},
+		Clue = {
+			Label = "Clue",
+			Color = { 105, 220, 255 }
+		},
+		Help = {
+			Label = "Help",
+			Color = { 255, 105, 105 }
+		}
+	}
+}
+
 Config.ClassAbilities = {
 	Hunter = {
 		Name = "Stun",
@@ -291,7 +356,103 @@ Config.AlienTypes = {
 	Galloid = {
 		Enabled = true,
 		DisplayName = "Galloid",
-		Description = "Chicken-like alien infiltrator disguised as a human."
+		Description = "Chicken-like alien infiltrator disguised as a human.",
+		DefaultVariant = "GalloidPecker",
+		StoryRole = "Funny-creepy first enemy that rewards observation before combat."
+	},
+
+	Husker = {
+		Enabled = false,
+		DisplayName = "Husker",
+		Description = "Parasite alien that weakens players over time.",
+		StoryRole = "Future pressure enemy for infection and rescue mechanics."
+	},
+
+	Hollowman = {
+		Enabled = false,
+		DisplayName = "Hollowman",
+		Description = "Almost-perfect human mimic with fewer obvious tells.",
+		StoryRole = "Future deduction enemy built around weak evidence and contradictions."
+	},
+
+	Crawler = {
+		Enabled = false,
+		DisplayName = "Crawler",
+		Description = "Stealth predator that hunts isolated players.",
+		StoryRole = "Future fear enemy that makes splitting up risky."
+	},
+
+	Choir = {
+		Enabled = false,
+		DisplayName = "Choir",
+		Description = "Psychological alien entity that distorts certainty.",
+		StoryRole = "Future nightmare-tier enemy for UI, audio, and perception pressure."
+	}
+}
+
+Config.AlienTypeProfiles = {
+	GalloidPecker = {
+		Enabled = false,
+		AlienType = "Galloid",
+		DisplayName = "Galloid Pecker",
+		Description = "Aggressive Galloid breach variant for direct combat pressure.",
+		MapAffinity = { "Barn", "ChickenCoop" },
+		TellBias = { "Twitch", "Stare" },
+		UserThreat = "Fast close-range attacks after reveal.",
+		FutureTuning = {
+			MaxHealthMultiplier = 1,
+			DamageMultiplier = 1.15,
+			AttackCooldownMultiplier = 0.85,
+			TellChanceMultiplier = 1
+		}
+	},
+
+	GalloidBrooder = {
+		Enabled = false,
+		AlienType = "Galloid",
+		DisplayName = "Galloid Brooder",
+		Description = "Cluster variant that hides inside groups of civilians.",
+		MapAffinity = { "TownWell", "GeneralStore" },
+		TellBias = { "Freeze", "StrangeSpeech" },
+		UserThreat = "Makes suspect reads harder by staying near decoys.",
+		FutureTuning = {
+			MaxHealthMultiplier = 1.1,
+			DamageMultiplier = 0.9,
+			AttackCooldownMultiplier = 1.1,
+			TellChanceMultiplier = 0.85
+		}
+	},
+
+	GalloidMolt = {
+		Enabled = false,
+		AlienType = "Galloid",
+		DisplayName = "Galloid Molt",
+		Description = "Evidence-heavy Galloid that leaves feather and corn traces.",
+		MapAffinity = { "ChickenCoop", "Barn", "AbandonedTruck" },
+		TellBias = { "AvoidsLight", "CornResidue" },
+		UserThreat = "Easier to track, but can bait overconfident accusations.",
+		FutureTuning = {
+			MaxHealthMultiplier = 0.9,
+			DamageMultiplier = 1,
+			AttackCooldownMultiplier = 1,
+			TellChanceMultiplier = 1.25
+		}
+	},
+
+	GalloidRooster = {
+		Enabled = false,
+		AlienType = "Galloid",
+		DisplayName = "Galloid Rooster",
+		Description = "Alarm variant that turns mistakes into louder round pressure.",
+		MapAffinity = { "FeedSilo", "ObservationPole" },
+		TellBias = { "StrangeSpeech", "Stare" },
+		UserThreat = "Future aggression boosts, warnings, and pressure spikes.",
+		FutureTuning = {
+			MaxHealthMultiplier = 1,
+			DamageMultiplier = 1,
+			AttackCooldownMultiplier = 0.95,
+			TellChanceMultiplier = 1.2
+		}
 	}
 }
 
