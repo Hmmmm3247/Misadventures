@@ -66,6 +66,7 @@ function RemoteService.Init(sharedContext)
 	remotes.SelectClass = getOrCreateRemote("RemoteFunction", "SelectClass")
 	remotes.UseClassAbility = getOrCreateRemote("RemoteFunction", "UseClassAbility")
 	remotes.PlacePing = getOrCreateRemote("RemoteFunction", "PlacePing")
+	remotes.DebugCommand = getOrCreateRemote("RemoteFunction", "DebugCommand")
 end
 
 function RemoteService.Start()
@@ -86,6 +87,10 @@ end
 
 function RemoteService.BindPlayerPingHandler(callback)
 	remotes.PlacePing.OnServerInvoke = callback
+end
+
+function RemoteService.BindDebugCommandHandler(callback)
+	remotes.DebugCommand.OnServerInvoke = callback
 end
 
 function RemoteService.SendPublicSnapshot(player)

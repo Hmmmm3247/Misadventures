@@ -20,10 +20,13 @@ local RoundResults = Remotes:WaitForChild("RoundResults")
 local SelectClass = Remotes:WaitForChild("SelectClass")
 local UseClassAbility = Remotes:WaitForChild("UseClassAbility")
 local PlacePing = Remotes:WaitForChild("PlacePing")
+local DebugCommand = Remotes:WaitForChild("DebugCommand")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local audioConfig = Config.Audio or {}
+local debugConfig = Config.DebugTesting or {}
+local debugControlsEnabled = debugConfig.Enabled == true and debugConfig.ControlsEnabled == true
 local audioFolder = Instance.new("Folder")
 audioFolder.Name = "ChickenAlienHuntAudio"
 audioFolder.Parent = SoundService
@@ -47,11 +50,13 @@ bottomShade.AnchorPoint = Vector2.new(0, 1)
 bottomShade.Position = UDim2.new(0, 0, 1, 0)
 bottomShade.Parent = gui
 
+local screenPulseEndsAt = 0
+
 local panel = Instance.new("Frame")
 panel.Name = "Panel"
 panel.AnchorPoint = Vector2.new(0, 0)
 panel.Position = UDim2.fromOffset(18, 18)
-panel.Size = UDim2.fromOffset(430, 632)
+panel.Size = debugControlsEnabled and UDim2.fromOffset(430, 728) or UDim2.fromOffset(430, 632)
 panel.BackgroundColor3 = Color3.fromRGB(9, 13, 13)
 panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
@@ -228,6 +233,10 @@ local function setCombatCooldown(seconds)
 	combatCooldownEndsAt = math.max(combatCooldownEndsAt, os.clock() + seconds)
 end
 
+local function startScreenPulse(duration)
+	screenPulseEndsAt = math.max(screenPulseEndsAt, os.clock() + (duration or 0.75))
+end
+
 local pingPanel = Instance.new("Frame")
 pingPanel.Name = "PingPanel"
 pingPanel.BackgroundTransparency = 1
@@ -295,6 +304,89 @@ createPingButton("Suspicious", "Suspicious")
 createPingButton("Clue", "Clue")
 createPingButton("Help", "Help")
 
+local function runDebugCommand(command, labelText)
+	feedbackLabel.Text = "Debug: " .. labelText
+
+	task.spawn(function()
+		local success, result = pcall(function()
+			return DebugCommand:InvokeServer(command)
+		end)
+
+		if not success then
+			feedbackLabel.Text = "DEBUG FAILED: " .. labelText
+			return
+		end
+
+		if result and result.Accepted then
+			feedbackLabel.Text = tostring(result.Message or ("DEBUG OK: " .. labelText))
+		else
+			feedbackLabel.Text = "DEBUG BLOCKED: " .. tostring(result and result.Reason or "Unknown")
+		end
+	end)
+end
+
+local function createDebugButton(parent, command, labelText)
+	local button = Instance.new("TextButton")
+	button.Name = command .. "DebugButton"
+	button.Size = UDim2.new(0, 128, 1, 0)
+	button.BackgroundColor3 = Color3.fromRGB(62, 46, 36)
+	button.BorderSizePixel = 0
+	button.Font = Enum.Font.GothamBold
+	button.Text = labelText
+	button.TextColor3 = Color3.fromRGB(248, 226, 205)
+	button.TextSize = 11
+	button.TextWrapped = true
+	button.Parent = parent
+
+	button.Activated:Connect(function()
+		runDebugCommand(command, labelText)
+	end)
+
+	return button
+end
+
+if debugControlsEnabled then
+	local debugPanel = Instance.new("Frame")
+	debugPanel.Name = "DebugPanel"
+	debugPanel.BackgroundTransparency = 1
+	debugPanel.Size = UDim2.new(1, 0, 0, 76)
+	debugPanel.LayoutOrder = 15
+	debugPanel.Parent = panel
+
+	local debugLayout = Instance.new("UIListLayout")
+	debugLayout.Padding = UDim.new(0, 6)
+	debugLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	debugLayout.Parent = debugPanel
+
+	local debugRowOne = Instance.new("Frame")
+	debugRowOne.Name = "DebugRowOne"
+	debugRowOne.BackgroundTransparency = 1
+	debugRowOne.Size = UDim2.new(1, 0, 0, 34)
+	debugRowOne.LayoutOrder = 1
+	debugRowOne.Parent = debugPanel
+
+	local debugRowTwo = debugRowOne:Clone()
+	debugRowTwo.Name = "DebugRowTwo"
+	debugRowTwo.LayoutOrder = 2
+	debugRowTwo.Parent = debugPanel
+
+	local rowOneLayout = Instance.new("UIListLayout")
+	rowOneLayout.FillDirection = Enum.FillDirection.Horizontal
+	rowOneLayout.Padding = UDim.new(0, 6)
+	rowOneLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	rowOneLayout.Parent = debugRowOne
+
+	local rowTwoLayout = rowOneLayout:Clone()
+	rowTwoLayout.Parent = debugRowTwo
+
+	createDebugButton(debugRowOne, "RevealFirstAlien", "Reveal 1")
+	createDebugButton(debugRowOne, "RevealAllAliens", "Reveal All")
+	createDebugButton(debugRowOne, "SkipToActive", "Skip Active")
+	createDebugButton(debugRowTwo, "ForceWrongPenalty", "Wrong Penalty")
+	createDebugButton(debugRowTwo, "SpawnChaseTestAlien", "Chase Test")
+	createDebugButton(debugRowTwo, "PrintAggression", "Aggression")
+end
+
 abilityButton.Activated:Connect(function()
 	if os.clock() < abilityCooldownEndsAt then
 		return
@@ -333,6 +425,20 @@ task.spawn(function()
 		local remaining = math.max(0, abilityCooldownEndsAt - os.clock())
 		local combatRemaining = math.max(0, combatCooldownEndsAt - os.clock())
 		local pingRemaining = math.max(0, pingCooldownEndsAt - os.clock())
+		local pulseRemaining = math.max(0, screenPulseEndsAt - os.clock())
+
+		if pulseRemaining > 0 then
+			local alpha = math.clamp(pulseRemaining / 0.75, 0, 1)
+			topShade.BackgroundColor3 = Color3.fromRGB(92, 10, 10)
+			bottomShade.BackgroundColor3 = Color3.fromRGB(92, 10, 10)
+			topShade.BackgroundTransparency = 0.12 + (1 - alpha) * 0.45
+			bottomShade.BackgroundTransparency = topShade.BackgroundTransparency
+		else
+			topShade.BackgroundColor3 = Color3.fromRGB(4, 6, 6)
+			bottomShade.BackgroundColor3 = Color3.fromRGB(4, 6, 6)
+			topShade.BackgroundTransparency = 0.25
+			bottomShade.BackgroundTransparency = 0.25
+		end
 
 		if remaining > 0 then
 			abilityButton.Text = "Ability: " .. tostring(math.ceil(remaining)) .. "s"
@@ -567,6 +673,10 @@ end)
 MissionWarning.OnClientEvent:Connect(function(warning)
 	if type(warning) == "table" then
 		feedbackLabel.Text = tostring(warning.Text or warning.Message or "MISSION WARNING")
+
+		if warning.ScreenPulse then
+			startScreenPulse(warning.ScreenPulseDuration or 0.75)
+		end
 	else
 		feedbackLabel.Text = tostring(warning)
 	end

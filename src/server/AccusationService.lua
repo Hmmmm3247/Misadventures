@@ -29,6 +29,41 @@ local function getRiskReason(matchSummary)
 	return "Matched " .. matchSummary.Matched .. " of " .. matchSummary.Total .. " discovered clues"
 end
 
+local function applyWrongAccusationConsequences(reason)
+	local penaltyConfig = context.Config.WrongAccusation or {}
+	local timePenalty = penaltyConfig.TimePenalty or 0
+
+	if timePenalty > 0 then
+		context.Services.RoundService.ApplyTimePenalty(timePenalty, reason or "WrongAccusation")
+	end
+
+	context.Services.AlienService.BoostAggression(
+		penaltyConfig.AggressionDuration or 0,
+		penaltyConfig.AggressionMultiplier or 1,
+		penaltyConfig.ChaseAggressionMultiplier or penaltyConfig.AggressionMultiplier or 1
+	)
+
+	if context.Services.MapEventService then
+		context.Services.MapEventService.TriggerAlarmPulse(reason or "WrongAccusation")
+	end
+
+	task.defer(function()
+		context.Services.RemoteService.BroadcastMissionWarning({
+			Text = penaltyConfig.Warning or "FALSE TARGET. ENTITY AGGRESSION RISING.",
+			Severity = "Emergency",
+			ScreenPulse = true,
+			ScreenPulseDuration = penaltyConfig.ScreenPulseDuration or 0.75
+		})
+	end)
+
+	return {
+		TimePenalty = timePenalty,
+		AggressionDuration = penaltyConfig.AggressionDuration or 0,
+		AggressionMultiplier = penaltyConfig.AggressionMultiplier or 1,
+		ChaseAggressionMultiplier = penaltyConfig.ChaseAggressionMultiplier or penaltyConfig.AggressionMultiplier or 1
+	}
+end
+
 function AccusationService.Init(sharedContext)
 	context = sharedContext
 end
@@ -88,21 +123,7 @@ function AccusationService.Accuse(player, npcId)
 		context.Services.RemoteService.BroadcastSuspectSnapshot()
 		context.Services.RemoteService.BroadcastRoundState()
 	else
-		local penaltyConfig = context.Config.WrongAccusation or {}
-		local timePenalty = penaltyConfig.TimePenalty or 0
-
-		if timePenalty > 0 then
-			context.Services.RoundService.ApplyTimePenalty(timePenalty, "WrongAccusation")
-		end
-
-		context.Services.AlienService.BoostAggression(penaltyConfig.AggressionDuration or 0, penaltyConfig.AggressionMultiplier or 1)
-
-		task.defer(function()
-			context.Services.RemoteService.BroadcastMissionWarning({
-				Text = penaltyConfig.Warning or "FALSE TARGET. ENTITY AGGRESSION RISING.",
-				Severity = "Warning"
-			})
-		end)
+		applyWrongAccusationConsequences("WrongAccusation")
 	end
 
 	context.Services.ResultService.RecordAccusation(result)
@@ -131,6 +152,16 @@ function AccusationService.SubmitAccusation(player, npcId)
 		NPCId = result.NPCId,
 		Correct = result.Correct
 	}
+end
+
+function AccusationService.DebugForceWrongAccusationPenalty(player)
+	if not (context.Config.DebugTesting and context.Config.DebugTesting.Enabled) then
+		return nil
+	end
+
+	print("[AccusationService] Debug force wrong accusation penalty:", player and player.Name or "Unknown")
+
+	return applyWrongAccusationConsequences("DebugWrongAccusation")
 end
 
 return AccusationService

@@ -21,6 +21,18 @@ Config.ResultsLength = 10
 Config.DebugPrintSecretAliens = false
 Config.RandomSeed = nil
 
+Config.DebugTesting = {
+	Enabled = false,
+	ControlsEnabled = true,
+	CommandCooldown = 0.5,
+	MinPlayersOverride = 1,
+	IntermissionLength = 3,
+	RoundLength = 90,
+	ResultsLength = 6,
+	RevealFirstAlienAfter = nil,
+	ChaseTestSpawnDistance = 24
+}
+
 Config.DefaultPlayerClass = "Hunter"
 Config.ClassAssignmentOrder = {
 	"Hunter",
@@ -35,8 +47,20 @@ Config.RevealedAlienAttack = {
 	MaxHealth = 120,
 	Range = 11,
 	Damage = 18,
-	Cooldown = 1.6,
+	Cooldown = 1.45,
 	TickInterval = 0.35
+}
+
+Config.RevealedAlienChase = {
+	Enabled = true,
+	Range = 62,
+	StopDistance = 9,
+	Speed = 10.5,
+	LeashDistance = 76,
+	WarningCooldown = 7,
+	StartWarning = "CHASE WARNING: confirmed entity has locked onto you.",
+	StopWarning = "CHASE UPDATE: entity pursuit signal dropped.",
+	ScreenPulseDuration = 0.75
 }
 
 Config.PlayerBaseStats = {
@@ -54,12 +78,17 @@ Config.PlayerCombat = {
 Config.NPCBehavior = {
 	Enabled = true,
 	TickInterval = 1.25,
-	MoveSpeed = 7,
-	MoveChance = 0.35,
+	MoveSpeed = 5.75,
+	MoveChance = 0.28,
+	ClusterChance = 0.14,
+	ClusterSpawnSampleCount = 4,
 	NearbySpawnSampleCount = 4,
-	IdlePauseMin = 1.25,
-	IdlePauseMax = 3.5,
-	RandomFacingChance = 0.45
+	IdlePauseMin = 1.5,
+	IdlePauseMax = 4.25,
+	RandomFacingChance = 0.52,
+	ShortPauseChance = 0.18,
+	ShortPauseMin = 0.6,
+	ShortPauseMax = 1.35
 }
 
 Config.AlienBehavior = {
@@ -92,7 +121,16 @@ Config.WrongAccusation = {
 	TimePenalty = 20,
 	AggressionDuration = 18,
 	AggressionMultiplier = 1.45,
-	Warning = "FALSE TARGET. TIMER REDUCED. ENTITY AGGRESSION RISING."
+	ChaseAggressionMultiplier = 1.3,
+	Warning = "EMERGENCY: false target. Timer reduced. Revealed entity pursuit elevated.",
+	ScreenPulseDuration = 0.85,
+	AlarmPulse = {
+		Enabled = true,
+		Text = "ALARM PULSE: false accusation destabilized the containment field.",
+		Severity = "Emergency",
+		EventType = "Alarm",
+		Zone = "FarmTown"
+	}
 }
 
 Config.MapEvents = {

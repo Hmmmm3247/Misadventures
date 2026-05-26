@@ -32,6 +32,8 @@ The server owns round state, alien identity, clue truth, accusation validation, 
 - Added `MapLayout.ZoneRoles` and zone metadata so FarmTown landmarks have explicit gameplay jobs.
 - Added `MapEventService` for server-owned active-round radio/scanner/audio map pings that point players toward zones without revealing alien identities.
 - Added `PlayerPingService`, `PlacePing`, and three simple HUD pings: Suspicious, Clue, and Help.
+- Added simple server-owned revealed-alien chase movement controlled by `Config.RevealedAlienChase`.
+- Added disabled-by-default `Config.DebugTesting` for shorter Studio test loops and optional server-side first-alien reveal.
 
 ## Source Layout
 
@@ -67,6 +69,10 @@ Rojo currently maps:
 
 `src/shared/Config.lua` currently contains:
 
+- Debug testing knobs:
+  - faster intermission/round/results timings
+  - minimum player override
+  - optional first alien reveal after active round start
 - Round timing:
   - intermission
   - active round length
@@ -225,6 +231,7 @@ Rojo currently maps:
 ### Alien Attacks
 
 - Revealed aliens damage nearby living players on the server.
+- Revealed aliens now move toward the nearest living player within chase range.
 - Wrong accusations temporarily reduce revealed-alien attack cooldown through an aggression multiplier.
 - Eliminated aliens stop attacking.
 - If all spawned player characters are down, aliens win.

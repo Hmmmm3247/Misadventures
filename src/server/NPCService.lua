@@ -176,6 +176,25 @@ local function chooseNearbySpawn(npc, avoidLights)
 	return bestSpawn or spawnPoints[random:NextInteger(1, #spawnPoints)]
 end
 
+local function chooseLandmarkSpawn()
+	local landmarks = context.Services.MapService.GetLandmarkPositions and context.Services.MapService.GetLandmarkPositions() or {}
+	local spawnPoints = context.Services.MapService.GetNPCSpawns()
+	local behaviorConfig = context.Config.NPCBehavior or {}
+	local sampleCount = behaviorConfig.ClusterSpawnSampleCount or 4
+
+	if #landmarks == 0 or #spawnPoints == 0 then
+		return nil
+	end
+
+	local landmark = landmarks[random:NextInteger(1, #landmarks)]
+
+	table.sort(spawnPoints, function(left, right)
+		return (left.Position - landmark).Magnitude < (right.Position - landmark).Magnitude
+	end)
+
+	return spawnPoints[random:NextInteger(1, math.min(sampleCount, #spawnPoints))]
+end
+
 local function moveNPCToSpawn(npc, spawnPart)
 	if not spawnPart or not npc.Model or not npc.Model.PrimaryPart then
 		return
@@ -567,7 +586,13 @@ function NPCService.StartBehaviorLoop()
 								faceRandomDirection(npc)
 							end
 
-							if random:NextNumber() <= (behaviorConfig.MoveChance or 0.35) then
+							if random:NextNumber() <= (behaviorConfig.ShortPauseChance or 0.15) then
+								task.wait(random:NextNumber(behaviorConfig.ShortPauseMin or 0.5, behaviorConfig.ShortPauseMax or 1.2))
+							end
+
+							if random:NextNumber() <= (behaviorConfig.ClusterChance or 0.1) then
+								moveNPCToSpawn(npc, chooseLandmarkSpawn())
+							elseif random:NextNumber() <= (behaviorConfig.MoveChance or 0.35) then
 								moveNPCToSpawn(npc, chooseNearbySpawn(npc, false))
 							end
 						end
@@ -775,6 +800,22 @@ function NPCService.MarkForSeconds(npcId, markerName, color, duration)
 			marker:Destroy()
 		end
 	end)
+
+	return npc
+end
+
+function NPCService.DebugPivotNPCTo(npcId, rootCFrame)
+	if not (context.Config.DebugTesting and context.Config.DebugTesting.Enabled) then
+		return nil
+	end
+
+	local npc = NPCService.GetNPCById(npcId)
+
+	if not npc then
+		return nil
+	end
+
+	pivotRootTo(npc, rootCFrame)
 
 	return npc
 end

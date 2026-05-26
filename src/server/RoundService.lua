@@ -6,6 +6,53 @@ local context
 local running = false
 local activeRoundEnded = false
 
+local function getDebugTestingConfig()
+	return context.Config.DebugTesting or {}
+end
+
+local function isDebugTestingEnabled()
+	return getDebugTestingConfig().Enabled == true
+end
+
+local function getConfiguredDuration(key, fallback)
+	local debugConfig = getDebugTestingConfig()
+
+	if isDebugTestingEnabled() and type(debugConfig[key]) == "number" then
+		return debugConfig[key]
+	end
+
+	return fallback
+end
+
+local function getMinimumPlayers()
+	local debugConfig = getDebugTestingConfig()
+
+	if isDebugTestingEnabled() and type(debugConfig.MinPlayersOverride) == "number" then
+		return debugConfig.MinPlayersOverride
+	end
+
+	return context.Config.MinPlayers
+end
+
+local function scheduleDebugAlienReveal()
+	local debugConfig = getDebugTestingConfig()
+
+	if not isDebugTestingEnabled() or type(debugConfig.RevealFirstAlienAfter) ~= "number" then
+		return
+	end
+
+	local roundNumber = context.Round.Number
+	local delaySeconds = math.max(0, debugConfig.RevealFirstAlienAfter)
+
+	task.delay(delaySeconds, function()
+		if context.Round.State ~= "Active" or context.Round.Number ~= roundNumber then
+			return
+		end
+
+		context.Services.AlienService.DebugRevealFirstAlien("DebugTesting")
+	end)
+end
+
 function RoundService.Init(sharedContext)
 	context = sharedContext
 end
@@ -31,7 +78,7 @@ function RoundService.SetState(state, timeRemaining)
 end
 
 function RoundService.WaitForMinimumPlayers()
-	while running and #Players:GetPlayers() < context.Config.MinPlayers do
+	while running and #Players:GetPlayers() < getMinimumPlayers() do
 		RoundService.SetState("WaitingForPlayers", 0)
 		task.wait(context.Config.RoundTickInterval)
 	end
@@ -60,6 +107,10 @@ function RoundService.Countdown(state, duration)
 		RoundService.SetState(state, timeRemaining)
 		task.wait(context.Config.RoundTickInterval)
 
+		if state ~= "Active" and context.Round.State ~= state then
+			return true
+		end
+
 		if state == "Active" then
 			timeRemaining = context.Round.TimeRemaining - context.Config.RoundTickInterval
 		else
@@ -83,9 +134,13 @@ function RoundService.ApplyTimePenalty(seconds, reason)
 end
 
 function RoundService.StartRound()
+	if context.Round.State == "Active" then
+		return
+	end
+
 	context.Round.Number += 1
 	activeRoundEnded = false
-	RoundService.SetState("Active", context.Config.RoundLength)
+	RoundService.SetState("Active", getConfiguredDuration("RoundLength", context.Config.RoundLength))
 
 	context.Services.ResultService.Reset()
 
@@ -96,6 +151,7 @@ function RoundService.StartRound()
 	context.Services.RemoteService.BroadcastNPCSnapshot()
 	context.Services.RemoteService.BroadcastClueSnapshot()
 	context.Services.RemoteService.BroadcastSuspectSnapshot()
+	scheduleDebugAlienReveal()
 
 	print("[RoundService] Round started:", context.Round.Number)
 end
@@ -124,13 +180,15 @@ function RoundService.RunLoop()
 			return
 		end
 
-		if not RoundService.Countdown("Intermission", context.Config.IntermissionLength) then
+		if not RoundService.Countdown("Intermission", getConfiguredDuration("IntermissionLength", context.Config.IntermissionLength)) then
 			return
 		end
 
-		RoundService.StartRound()
+		if context.Round.State ~= "Active" then
+			RoundService.StartRound()
+		end
 
-		if not RoundService.Countdown("Active", context.Config.RoundLength) then
+		if not RoundService.Countdown("Active", getConfiguredDuration("RoundLength", context.Config.RoundLength)) then
 			return
 		end
 
@@ -138,12 +196,27 @@ function RoundService.RunLoop()
 			RoundService.EndRound("TimeExpired")
 		end
 
-		RoundService.Countdown("Results", context.Config.ResultsLength)
+		RoundService.Countdown("Results", getConfiguredDuration("ResultsLength", context.Config.ResultsLength))
 	end
 end
 
 function RoundService.GetState()
 	return context.Round.State
+end
+
+function RoundService.DebugSkipToActiveRound(reason)
+	if not (context.Config.DebugTesting and context.Config.DebugTesting.Enabled) then
+		return false
+	end
+
+	if context.Round.State == "Active" then
+		return false
+	end
+
+	print("[RoundService] Debug skip to active:", reason or "Debug")
+	RoundService.StartRound()
+
+	return true
 end
 
 return RoundService

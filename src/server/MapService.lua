@@ -258,6 +258,8 @@ local function createArenaProps()
 		if propConfig.Material then
 			prop.Material = propConfig.Material
 		end
+
+		prop:SetAttribute("MapLandmark", true)
 	end
 end
 
@@ -379,6 +381,18 @@ function MapService.GetLightPositions()
 	for _, lightPart in ipairs(folders.Lights:GetChildren()) do
 		if lightPart:IsA("BasePart") then
 			table.insert(positions, lightPart.Position)
+		end
+	end
+
+	return positions
+end
+
+function MapService.GetLandmarkPositions()
+	local positions = {}
+
+	for _, prop in ipairs(folders.Props:GetChildren()) do
+		if prop:IsA("BasePart") and prop:GetAttribute("MapLandmark") then
+			table.insert(positions, prop.Position)
 		end
 	end
 
