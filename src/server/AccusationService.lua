@@ -123,6 +123,8 @@ function AccusationService.Accuse(player, npcId)
 		context.Services.RemoteService.BroadcastSuspectSnapshot()
 		context.Services.RemoteService.BroadcastRoundState()
 	else
+		local suspicionConfig = context.Config.NPCSuspicion or {}
+		context.Services.NPCService.AddSuspicion(npcId, suspicionConfig.WrongAccusationAmount or 10, "WrongAccusation")
 		applyWrongAccusationConsequences("WrongAccusation")
 	end
 

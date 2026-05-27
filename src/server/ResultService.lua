@@ -8,30 +8,6 @@ local results = {
 	RoundOutcome = nil
 }
 
-local function isPlayerAlive(player)
-	local character = player.Character
-
-	if not character then
-		return false
-	end
-
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-
-	return humanoid ~= nil and humanoid.Health > 0
-end
-
-local function getAlivePlayerCount()
-	local aliveCount = 0
-
-	for _, player in ipairs(Players:GetPlayers()) do
-		if isPlayerAlive(player) then
-			aliveCount += 1
-		end
-	end
-
-	return aliveCount
-end
-
 local function getCharacterCount()
 	local characterCount = 0
 
@@ -63,6 +39,24 @@ function ResultService.RecordAccusation(accusation)
 	print("[ResultService] Accusation recorded:", accusation.NPCId, accusation.Correct)
 end
 
+local function buildRevealedAliensSummary()
+	local enriched = {}
+
+	for _, entry in ipairs(context.Services.AlienService.GetPublicRevealedAliens()) do
+		local npc = context.Services.NPCService.GetNPCById(entry.NPCId)
+		table.insert(enriched, {
+			NPCId = entry.NPCId,
+			DisplayName = npc and npc.DisplayName or entry.NPCId,
+			AlienType = entry.AlienType,
+			Eliminated = entry.Eliminated,
+			Escaped = entry.Escaped,
+			IsJuvenile = entry.IsJuvenile
+		})
+	end
+
+	return enriched
+end
+
 function ResultService.EndRound(reason)
 	if results.RoundOutcome then
 		return results.RoundOutcome
@@ -78,11 +72,25 @@ function ResultService.EndRound(reason)
 		end
 	end
 
+	local wrongCount = 0
+	local correctCount = 0
+
+	for _, acc in ipairs(results.Accusations) do
+		if acc.Correct then
+			correctCount += 1
+		else
+			wrongCount += 1
+		end
+	end
+
 	results.RoundOutcome = {
 		Reason = reason,
 		Winner = reason == "AllAliensEliminated" and "Players" or "Aliens",
-		RevealedAliens = context.Services.AlienService.GetPublicRevealedAliens(),
-		AccusationCount = #results.Accusations
+		RevealedAliens = buildRevealedAliensSummary(),
+		RoundModifiers = context.Services.RoundService.GetRoundModifiers(),
+		AccusationCount = #results.Accusations,
+		CorrectAccusations = correctCount,
+		WrongAccusations = wrongCount
 	}
 
 	print("[ResultService] Round ended:", reason)
@@ -102,7 +110,11 @@ function ResultService.CheckForAliensWin()
 		return context.Services.RoundService.EndRound("NoPlayersRemaining")
 	end
 
-	if getCharacterCount() > 0 and getAlivePlayerCount() == 0 then
+	if context.Services.AlienService.HasEscapedAlien() then
+		return context.Services.RoundService.EndRound("AlienEscaped")
+	end
+
+	if getCharacterCount() > 0 and context.Services.PlayerService.AreAllPlayersDownedOrEliminated() then
 		return context.Services.RoundService.EndRound("AllPlayersDown")
 	end
 
@@ -110,7 +122,10 @@ function ResultService.CheckForAliensWin()
 end
 
 function ResultService.CheckForPlayersWin()
-	if context.Round.State == "Active" and context.Services.AlienService.AreAllAliensEliminated() then
+	if context.Round.State == "Active"
+		and context.Services.AlienService.AreAllAliensEliminated()
+		and not context.Services.PlayerService.HasActiveMimicPlayers()
+	then
 		return context.Services.RoundService.EndRound("AllAliensEliminated")
 	end
 

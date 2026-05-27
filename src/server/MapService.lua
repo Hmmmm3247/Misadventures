@@ -238,14 +238,45 @@ local function createAuthoredSpawns()
 	end
 end
 
+local function createEscapePoints()
+	clearFolder(folders.EscapePoints)
+
+	for index, pointConfig in ipairs(MapLayout.EscapePoints or {}) do
+		local point = createPart(
+			folders.EscapePoints,
+			pointConfig.Name or "EscapePoint_" .. index,
+			CFrame.new(pointConfig.Position),
+			Vector3.new(7, 0.25, 7),
+			Color3.fromRGB(255, 88, 72),
+			0.55
+		)
+
+		point.CanCollide = false
+		point.Material = Enum.Material.Neon
+		point:SetAttribute("EscapePoint", true)
+		point:SetAttribute("Zone", pointConfig.Zone or point.Name)
+	end
+end
+
 local function createArenaProps()
 	clearFolder(folders.Props)
 
 	for _, propConfig in ipairs(MapLayout.Props or {}) do
+		local rotation = propConfig.Rotation
+		local baseCFrame = CFrame.new(propConfig.Position)
+
+		if rotation then
+			baseCFrame = baseCFrame * CFrame.Angles(
+				math.rad(rotation.X or 0),
+				math.rad(rotation.Y or 0),
+				math.rad(rotation.Z or 0)
+			)
+		end
+
 		local prop = createPart(
 			folders.Props,
 			propConfig.Name,
-			CFrame.new(propConfig.Position),
+			baseCFrame,
 			propConfig.Size,
 			propConfig.Color,
 			0
@@ -259,7 +290,10 @@ local function createArenaProps()
 			prop.Material = propConfig.Material
 		end
 
-		prop:SetAttribute("MapLandmark", true)
+		if not propConfig.IsDecoration then
+			prop:SetAttribute("MapLandmark", true)
+			prop:SetAttribute("Zone", propConfig.Zone or propConfig.Name)
+		end
 	end
 end
 
@@ -314,6 +348,7 @@ local function createLightSources()
 			0
 		)
 		holder.Material = Enum.Material.Neon
+		holder:SetAttribute("Zone", lightConfig.Zone or lightConfig.Name)
 
 		local light = Instance.new("PointLight")
 		light.Color = lightConfig.Color
@@ -338,7 +373,8 @@ function MapService.Init(sharedContext)
 		Clues = getOrCreateFolder(root, "Clues"),
 		Props = getOrCreateFolder(root, "Props"),
 		SetDressing = getOrCreateFolder(root, "SetDressing"),
-		Lights = getOrCreateFolder(root, "Lights")
+		Lights = getOrCreateFolder(root, "Lights"),
+		EscapePoints = getOrCreateFolder(root, "EscapePoints")
 	}
 
 	context.Map = folders
@@ -357,6 +393,7 @@ function MapService.EnsureMap()
 	createGround(folders.Root)
 	applyLighting()
 	createAuthoredSpawns()
+	createEscapePoints()
 	createArenaProps()
 	createFenceSegments()
 	createLightSources()
@@ -375,6 +412,10 @@ function MapService.GetClueSpawns()
 	return getSortedChildren(folders.ClueSpawns)
 end
 
+function MapService.GetEscapePoints()
+	return getSortedChildren(folders.EscapePoints)
+end
+
 function MapService.GetLightPositions()
 	local positions = {}
 
@@ -387,6 +428,18 @@ function MapService.GetLightPositions()
 	return positions
 end
 
+function MapService.GetLightParts()
+	local parts = {}
+
+	for _, lightPart in ipairs(folders.Lights:GetChildren()) do
+		if lightPart:IsA("BasePart") then
+			table.insert(parts, lightPart)
+		end
+	end
+
+	return parts
+end
+
 function MapService.GetLandmarkPositions()
 	local positions = {}
 
@@ -397,6 +450,41 @@ function MapService.GetLandmarkPositions()
 	end
 
 	return positions
+end
+
+function MapService.GetZonePosition(zoneName)
+	if not zoneName then
+		return nil
+	end
+
+	if zoneName == "FarmTown" and folders.Root then
+		local ground = folders.Root:FindFirstChild("Ground")
+
+		if ground and ground:IsA("BasePart") then
+			return ground.Position
+		end
+
+		return Vector3.new(0, 0, 0)
+	end
+
+	local searchFolders = {
+		folders.Props,
+		folders.Lights,
+		folders.ClueSpawns,
+		folders.EscapePoints,
+		folders.PlayerSpawns,
+		folders.NPCSpawns
+	}
+
+	for _, folder in ipairs(searchFolders) do
+		for _, child in ipairs(folder:GetChildren()) do
+			if child:IsA("BasePart") and (child.Name == zoneName or child:GetAttribute("Zone") == zoneName) then
+				return child.Position
+			end
+		end
+	end
+
+	return nil
 end
 
 return MapService

@@ -177,11 +177,13 @@ end
 
 function ClueService.GetPublicSuspectSnapshot()
 	local suspects = context.Services.NPCService.GetPublicSuspects(discoveredTraits)
+	local highlySuspicious = context.Services.NPCService.GetHighlySuspiciousNPCs()
 
 	return {
 		DiscoveredTraitCount = #discoveredTraits,
 		SuspectCount = #suspects,
-		Suspects = suspects
+		Suspects = suspects,
+		HighlySuspicious = highlySuspicious
 	}
 end
 
@@ -196,6 +198,7 @@ function ClueService.MarkDiscovered(clueId, player)
 
 			if clue.Trait then
 				table.insert(discoveredTraits, clue.Trait)
+				context.Services.NPCService.ApplyClueSuspicion(clue.Trait)
 			end
 
 			setClueObjectDiscovered(clue)

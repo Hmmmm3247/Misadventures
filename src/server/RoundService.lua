@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local context
 local running = false
 local activeRoundEnded = false
+local random
 
 local function getDebugTestingConfig()
 	return context.Config.DebugTesting or {}
@@ -34,6 +35,51 @@ local function getMinimumPlayers()
 	return context.Config.MinPlayers
 end
 
+local function rollRoundModifiers()
+	local modifiers = {}
+	local nestingConfig = context.Config.NestingEvent or {}
+
+	if nestingConfig.Enabled and random:NextNumber() <= (nestingConfig.Chance or 0) then
+		modifiers.NestingEvent = {
+			Name = "NestingEvent",
+			Active = true,
+			RageTriggered = false
+		}
+	end
+
+	context.Round.Modifiers = modifiers
+
+	return modifiers
+end
+
+local function scheduleNestingWarningSigns()
+	local nestingConfig = context.Config.NestingEvent or {}
+
+	if not RoundService.HasModifier("NestingEvent") then
+		return
+	end
+
+	if random:NextNumber() > (nestingConfig.WarningSignChanceOnRoundStart or 0) then
+		return
+	end
+
+	task.delay(random:NextNumber(nestingConfig.WarningSignDelayMin or 4, nestingConfig.WarningSignDelayMax or 9), function()
+		if context.Round.State ~= "Active" or not RoundService.HasModifier("NestingEvent") then
+			return
+		end
+
+		if context.Services.MapEventService then
+			context.Services.MapEventService.TriggerNestingHint("NestingEvent")
+		end
+
+		context.Services.RemoteService.BroadcastMissionWarning({
+			Text = nestingConfig.PreEscalationWarning or "RADIO HINT: small distress calls under the farm channel.",
+			Severity = "MapPing",
+			ScreenPulse = false
+		})
+	end)
+end
+
 local function scheduleDebugAlienReveal()
 	local debugConfig = getDebugTestingConfig()
 
@@ -55,6 +101,7 @@ end
 
 function RoundService.Init(sharedContext)
 	context = sharedContext
+	random = Random.new(context.Config.RandomSeed)
 end
 
 function RoundService.Start()
@@ -139,10 +186,13 @@ function RoundService.StartRound()
 	end
 
 	context.Round.Number += 1
+	context.Round.Modifiers = {}
 	activeRoundEnded = false
 	RoundService.SetState("Active", getConfiguredDuration("RoundLength", context.Config.RoundLength))
+	rollRoundModifiers()
 
 	context.Services.ResultService.Reset()
+	context.Services.PlayerService.ResetForRound()
 
 	local npcs = context.Services.NPCService.SpawnRoundNPCs()
 	context.Services.AlienService.SelectAliens(npcs)
@@ -152,6 +202,7 @@ function RoundService.StartRound()
 	context.Services.RemoteService.BroadcastClueSnapshot()
 	context.Services.RemoteService.BroadcastSuspectSnapshot()
 	scheduleDebugAlienReveal()
+	scheduleNestingWarningSigns()
 
 	print("[RoundService] Round started:", context.Round.Number)
 end
@@ -202,6 +253,38 @@ end
 
 function RoundService.GetState()
 	return context.Round.State
+end
+
+function RoundService.HasModifier(modifierName)
+	local modifiers = context.Round.Modifiers or {}
+	local modifier = modifiers[modifierName]
+
+	return modifier and modifier.Active == true
+end
+
+function RoundService.GetModifier(modifierName)
+	local modifiers = context.Round.Modifiers or {}
+
+	return modifiers[modifierName]
+end
+
+function RoundService.SetModifierState(modifierName, values)
+	local modifiers = context.Round.Modifiers or {}
+	local modifier = modifiers[modifierName]
+
+	if not modifier then
+		return nil
+	end
+
+	for key, value in pairs(values or {}) do
+		modifier[key] = value
+	end
+
+	return modifier
+end
+
+function RoundService.GetRoundModifiers()
+	return context.Round.Modifiers or {}
 end
 
 function RoundService.DebugSkipToActiveRound(reason)

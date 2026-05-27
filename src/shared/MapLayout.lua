@@ -49,6 +49,18 @@ MapLayout.ZoneRoles = {
 		Purpose = "Failed evacuation story prop and cover.",
 		Gameplay = "Outer-lane route marker during combat.",
 		FutureUse = "Escape clue or supply cache."
+	},
+
+	BarnBackExit = {
+		Purpose = "High-risk containment breach route.",
+		Gameplay = "Revealed aliens can run behind the barn to escape.",
+		FutureUse = "Door lock or trap objective."
+	},
+
+	CornfieldEdge = {
+		Purpose = "Outer farm boundary and alien escape pressure point.",
+		Gameplay = "Revealed aliens can flee toward the cornfield edge.",
+		FutureUse = "Cornfield chase route."
 	}
 }
 
@@ -82,6 +94,24 @@ MapLayout.PlayerSpawns = {
 	-- SouthernEntry
 	Vector3.new(-8, 1, -58),
 	Vector3.new(8, 1, -58)
+}
+
+MapLayout.EscapePoints = {
+	{
+		Name = "SouthernEntry",
+		Zone = "SouthernEntry",
+		Position = Vector3.new(0, 0, -66)
+	},
+	{
+		Name = "BarnBackExit",
+		Zone = "BarnBackExit",
+		Position = Vector3.new(56, 0, 42)
+	},
+	{
+		Name = "CornfieldEdge",
+		Zone = "CornfieldEdge",
+		Position = Vector3.new(-18, 0, 66)
+	}
 }
 
 MapLayout.NPCSpawns = {
@@ -202,6 +232,190 @@ MapLayout.Props = {
 		Size = Vector3.new(12, 4, 6),
 		Color = Color3.fromRGB(53, 70, 65),
 		Material = Enum.Material.CorrodedMetal
+	},
+
+	-- GeneralStore detail
+	{
+		Name = "GeneralStoreRoof",
+		Position = Vector3.new(-36, 8.5, 30),
+		Size = Vector3.new(20, 1, 16),
+		Color = Color3.fromRGB(66, 46, 36),
+		Material = Enum.Material.WoodPlanks,
+		IsDecoration = true
+	},
+	{
+		Name = "GeneralStoreChimney",
+		Position = Vector3.new(-31, 12.5, 28),
+		Size = Vector3.new(2, 7, 2),
+		Color = Color3.fromRGB(68, 54, 48),
+		Material = Enum.Material.Brick,
+		IsDecoration = true
+	},
+
+	-- Barn detail
+	{
+		Name = "BarnRoof",
+		Position = Vector3.new(34, 10.5, 28),
+		Size = Vector3.new(24, 1, 18),
+		Color = Color3.fromRGB(74, 26, 28),
+		Material = Enum.Material.WoodPlanks,
+		IsDecoration = true
+	},
+	{
+		Name = "BarnLoftFacade",
+		Position = Vector3.new(34, 7.5, 19.7),
+		Size = Vector3.new(10, 7, 0.5),
+		Color = Color3.fromRGB(56, 20, 22),
+		Material = Enum.Material.WoodPlanks,
+		IsDecoration = true
+	},
+
+	-- FeedSilo detail
+	{
+		Name = "SiloTop",
+		Position = Vector3.new(42, 14.5, -28),
+		Size = Vector3.new(9, 1, 9),
+		Color = Color3.fromRGB(65, 76, 74),
+		Material = Enum.Material.CorrodedMetal,
+		Shape = Enum.PartType.Cylinder,
+		IsDecoration = true
+	},
+	{
+		Name = "SiloLadder",
+		Position = Vector3.new(46, 7, -28),
+		Size = Vector3.new(0.4, 14, 0.4),
+		Color = Color3.fromRGB(52, 64, 62),
+		Material = Enum.Material.CorrodedMetal,
+		IsDecoration = true
+	},
+
+	-- TownWell detail
+	{
+		Name = "WellRim",
+		Position = Vector3.new(0, 2.3, 0),
+		Size = Vector3.new(8.8, 0.6, 8.8),
+		Color = Color3.fromRGB(44, 50, 48),
+		Material = Enum.Material.Slate,
+		Shape = Enum.PartType.Cylinder,
+		IsDecoration = true
+	},
+	{
+		Name = "WellPostLeft",
+		Position = Vector3.new(-5.5, 5, 0),
+		Size = Vector3.new(0.6, 7, 0.6),
+		Color = Color3.fromRGB(52, 46, 38),
+		Material = Enum.Material.Wood,
+		IsDecoration = true
+	},
+	{
+		Name = "WellPostRight",
+		Position = Vector3.new(5.5, 5, 0),
+		Size = Vector3.new(0.6, 7, 0.6),
+		Color = Color3.fromRGB(52, 46, 38),
+		Material = Enum.Material.Wood,
+		IsDecoration = true
+	},
+	{
+		Name = "WellBeam",
+		Position = Vector3.new(0, 8.8, 0),
+		Size = Vector3.new(12.5, 0.6, 0.6),
+		Color = Color3.fromRGB(52, 46, 38),
+		Material = Enum.Material.Wood,
+		IsDecoration = true
+	},
+
+	-- ChickenCoop detail
+	{
+		Name = "CoopRoof",
+		Position = Vector3.new(-42, 6.4, -34),
+		Size = Vector3.new(15.5, 0.8, 11),
+		Color = Color3.fromRGB(76, 52, 36),
+		Material = Enum.Material.WoodPlanks,
+		IsDecoration = true
+	},
+
+	-- BrokenWindmill detail
+	{
+		Name = "WindmillCap",
+		Position = Vector3.new(12, 16.4, -52),
+		Size = Vector3.new(5, 0.8, 5),
+		Color = Color3.fromRGB(60, 52, 44),
+		Material = Enum.Material.Wood,
+		IsDecoration = true
+	},
+	{
+		Name = "WindmillBladeA",
+		Position = Vector3.new(9, 15.5, -52),
+		Size = Vector3.new(5.5, 0.55, 0.55),
+		Color = Color3.fromRGB(58, 50, 42),
+		Material = Enum.Material.Wood,
+		Rotation = Vector3.new(0, 0, 20),
+		IsDecoration = true
+	},
+	{
+		Name = "WindmillBladeB",
+		Position = Vector3.new(15.5, 13.5, -52),
+		Size = Vector3.new(5.5, 0.55, 0.55),
+		Color = Color3.fromRGB(58, 50, 42),
+		Material = Enum.Material.Wood,
+		Rotation = Vector3.new(0, 0, -30),
+		IsDecoration = true
+	},
+
+	-- ObservationPole detail
+	{
+		Name = "ObservationPlatform",
+		Position = Vector3.new(-4, 14.3, 48),
+		Size = Vector3.new(5.5, 0.6, 5.5),
+		Color = Color3.fromRGB(34, 40, 40),
+		Material = Enum.Material.CorrodedMetal,
+		IsDecoration = true
+	},
+
+	-- AbandonedTruck detail
+	{
+		Name = "TruckCab",
+		Position = Vector3.new(-45, 3.5, 6),
+		Size = Vector3.new(5, 7, 6.5),
+		Color = Color3.fromRGB(46, 62, 58),
+		Material = Enum.Material.CorrodedMetal,
+		IsDecoration = true
+	},
+
+	-- Ground-level scatter props
+	{
+		Name = "HayBale1",
+		Position = Vector3.new(26, 1, 20),
+		Size = Vector3.new(3, 2, 2.5),
+		Color = Color3.fromRGB(128, 106, 58),
+		Material = Enum.Material.Grass,
+		IsDecoration = true
+	},
+	{
+		Name = "HayBale2",
+		Position = Vector3.new(22, 1, 24),
+		Size = Vector3.new(3, 2, 2.5),
+		Color = Color3.fromRGB(118, 98, 54),
+		Material = Enum.Material.Grass,
+		Rotation = Vector3.new(0, 35, 0),
+		IsDecoration = true
+	},
+	{
+		Name = "FeedCrate1",
+		Position = Vector3.new(38, 1, -22),
+		Size = Vector3.new(2.5, 2, 2.5),
+		Color = Color3.fromRGB(80, 58, 44),
+		Material = Enum.Material.WoodPlanks,
+		IsDecoration = true
+	},
+	{
+		Name = "FeedCrate2",
+		Position = Vector3.new(35, 1, -19),
+		Size = Vector3.new(2.5, 2, 2.5),
+		Color = Color3.fromRGB(76, 54, 40),
+		Material = Enum.Material.WoodPlanks,
+		Rotation = Vector3.new(0, 22, 0),
+		IsDecoration = true
 	}
 }
 
@@ -220,12 +434,16 @@ MapLayout.Fences = {
 MapLayout.WarningPosts = {
 	Vector3.new(-16, 3, -18),
 	Vector3.new(22, 3, 2),
-	Vector3.new(-24, 3, 46)
+	Vector3.new(-24, 3, 46),
+	Vector3.new(44, 3, 38),
+	Vector3.new(-10, 3, 58),
+	Vector3.new(18, 3, 60)
 }
 
 MapLayout.LightSources = {
 	{
 		Name = "StoreLantern",
+		Zone = "GeneralStore",
 		Position = Vector3.new(-26, 7, 22),
 		Color = Color3.fromRGB(255, 166, 88),
 		Brightness = 1.1,
@@ -233,6 +451,7 @@ MapLayout.LightSources = {
 	},
 	{
 		Name = "BarnSickLight",
+		Zone = "Barn",
 		Position = Vector3.new(24, 7, 22),
 		Color = Color3.fromRGB(132, 255, 154),
 		Brightness = 0.65,
@@ -240,9 +459,26 @@ MapLayout.LightSources = {
 	},
 	{
 		Name = "WellGlow",
+		Zone = "TownWell",
 		Position = Vector3.new(0, 3, 0),
 		Color = Color3.fromRGB(105, 190, 170),
 		Brightness = 0.7,
+		Range = 16
+	},
+	{
+		Name = "CoopLantern",
+		Zone = "ChickenCoop",
+		Position = Vector3.new(-36, 7, -30),
+		Color = Color3.fromRGB(210, 148, 60),
+		Brightness = 0.75,
+		Range = 14
+	},
+	{
+		Name = "SiloLight",
+		Zone = "FeedSilo",
+		Position = Vector3.new(36, 8, -28),
+		Color = Color3.fromRGB(88, 210, 180),
+		Brightness = 0.55,
 		Range = 16
 	}
 }

@@ -328,6 +328,8 @@ luau src/shared/Config.lua
 
 These pass after the latest changes.
 
+Attempting to run server/client scripts directly with `luau` still reaches Roblox-global runtime errors outside Studio, starting at `game:GetService(...)`. That is expected for this Rojo project and does not indicate a Rojo path failure.
+
 Directly running server/client files with `luau` is limited outside Roblox because they depend on Roblox globals such as:
 
 - `game`
@@ -346,6 +348,10 @@ Known untested areas:
 
 - chase speed and stop distance feel
 - attack cooldown feel
+- alien escape route readability
+- containment breach warning timing
+- downed/revive ProximityPrompt behavior in local multiplayer
+- Medic revive health tuning
 - HUD readability with debug controls enabled
 - screen pulse intensity
 - alarm pulse readability
@@ -369,6 +375,17 @@ When someone can test on Windows in Roblox Studio, verify:
 11. Debug testing is off for normal testing.
 12. Debug buttons work only when debug testing is enabled.
 13. Debug `SpawnChaseTestAlien` places a revealed alien at a useful distance.
+14. Downed players show `DOWNED` in the HUD instead of being counted as active.
+15. Teammates can revive downed players with the server-created `Revive` prompt.
+16. Medic revives restore more health than non-Medic revives.
+17. Downed players cannot attack or use class abilities.
+18. Revealed aliens stop targeting downed players when active players remain.
+19. All players downed or eliminated ends the round with `AllPlayersDown`.
+20. Revealed aliens sometimes become escape threats based on `Config.AlienEscape.EscapeChanceOnReveal`.
+21. Escape threats move toward `SouthernEntry`, `BarnBackExit`, or `CornfieldEdge`.
+22. Stuns pause escape movement.
+23. Eliminating an escaping alien cancels the breach.
+24. Reaching an escape point ends the round with `AlienEscaped`.
 
 ## Recommended Next Sprint
 
@@ -381,6 +398,8 @@ Suggested tasks:
 3. Tune `Config.WrongAccusation.TimePenalty`, `AggressionMultiplier`, and `ChaseAggressionMultiplier`.
 4. Tune screen pulse intensity and duration.
 5. Improve HUD layout if ping/debug buttons crowd the panel.
-6. Add basic pathing later only if direct chase feels too awkward.
+6. Tune `Config.DownedPlayers.ReviveRange`, `ReviveHoldDuration`, `ReviveHealth`, and `MedicReviveHealth`.
+7. Tune `Config.AlienEscape.EscapeChanceOnReveal`, `EscapeDelaySeconds`, `EscapeSpeed`, and `EscapeWarningLeadTime`.
+8. Add basic pathing later only if direct chase or direct escape feels too awkward.
 
 Do not add monetization, data saving, advanced UI, or multiple maps yet.

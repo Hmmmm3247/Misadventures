@@ -10,11 +10,16 @@ local attackLoopRunning = false
 local aggressionUntil = 0
 local aggressionMultiplier = 1
 local chaseAggressionMultiplier = 1
+local damageMultiplier = 1
 
 local function getAlienMaxHealth()
 	local attackConfig = context.Config.RevealedAlienAttack or {}
 
 	return attackConfig.MaxHealth or 120
+end
+
+local function getEscapeConfig()
+	return context.Config.AlienEscape or {}
 end
 
 local function getRandom()
@@ -36,6 +41,14 @@ local function getCharacterRoot(player)
 end
 
 local function getLivingHumanoid(player)
+	if context.Services.PlayerService and context.Services.PlayerService.IsPlayerDowned(player) then
+		return nil
+	end
+
+	if context.Services.PlayerService and context.Services.PlayerService.IsMimicPlayer(player) then
+		return nil
+	end
+
 	local character = player.Character
 
 	if not character then
@@ -59,6 +72,39 @@ local function getAlienRoot(record)
 	end
 
 	return npc.Model.PrimaryPart
+end
+
+local function getAllowedEscapeNameMap()
+	local allowed = {}
+	local escapeConfig = getEscapeConfig()
+
+	for _, name in ipairs(escapeConfig.EscapePointNames or {}) do
+		allowed[name] = true
+	end
+
+	return allowed
+end
+
+local function chooseEscapePoint()
+	local points = context.Services.MapService.GetEscapePoints and context.Services.MapService.GetEscapePoints() or {}
+	local allowed = getAllowedEscapeNameMap()
+	local candidates = {}
+
+	for _, point in ipairs(points) do
+		if next(allowed) == nil or allowed[point.Name] then
+			table.insert(candidates, point)
+		end
+	end
+
+	if #candidates == 0 then
+		candidates = points
+	end
+
+	if #candidates == 0 then
+		return nil
+	end
+
+	return candidates[getRandom():NextInteger(1, #candidates)]
 end
 
 local function getNearestLivingPlayer(position, range)
@@ -186,10 +232,111 @@ local function chaseNearestPlayer(record, deltaTime)
 	pivotAlienRootTo(record, nextCFrame)
 end
 
+local function sendEscapeWarning(record)
+	local escapeConfig = getEscapeConfig()
+
+	if record.EscapeWarningSent then
+		return
+	end
+
+	record.EscapeWarningSent = true
+	context.Services.RemoteService.BroadcastMissionWarning({
+		Text = escapeConfig.Warning or "CONTAINMENT BREACH: revealed alien is escaping.",
+		Severity = "AlienEscape",
+		ScreenPulse = true,
+		ScreenPulseDuration = 0.9,
+		NPCId = record.NPCId,
+		EscapePointName = record.EscapePointName
+	})
+end
+
+local function markEscaped(record)
+	if record.Escaped or record.Eliminated then
+		return
+	end
+
+	local escapeConfig = getEscapeConfig()
+	record.Escaped = true
+	record.Escaping = false
+	sendChaseStopWarning(record)
+	context.Services.NPCService.MarkEscaped(record.NPCId)
+	context.Services.RemoteService.BroadcastNPCSnapshot()
+	context.Services.RemoteService.BroadcastMissionWarning({
+		Text = escapeConfig.EscapedWarning or "CONTAINMENT FAILED: alien escaped the perimeter.",
+		Severity = "AlienEscaped",
+		ScreenPulse = true,
+		ScreenPulseDuration = 1,
+		NPCId = record.NPCId,
+		EscapePointName = record.EscapePointName
+	})
+
+	print("[AlienService] Alien escaped:", record.NPCId, record.EscapePointName or "Unknown")
+	context.Services.ResultService.CheckForAliensWin()
+end
+
+local function moveEscapingAlien(record, deltaTime)
+	local escapeConfig = getEscapeConfig()
+
+	if not escapeConfig.Enabled or not record.EscapeThreat or record.Eliminated or record.Escaped then
+		return false
+	end
+
+	local now = os.clock()
+
+	if not record.EscapeTargetPosition then
+		return false
+	end
+
+	if not record.EscapeWarningSent and now >= (record.EscapeWarningAt or record.EscapeStartsAt or now) then
+		sendEscapeWarning(record)
+	end
+
+	if now < (record.EscapeStartsAt or now) then
+		return false
+	end
+
+	record.Escaping = true
+	sendChaseStopWarning(record)
+
+	if (record.StunnedUntil or 0) > now then
+		return true
+	end
+
+	local root = getAlienRoot(record)
+
+	if not root then
+		return true
+	end
+
+	local origin = root.Position
+	local target = Vector3.new(record.EscapeTargetPosition.X, origin.Y, record.EscapeTargetPosition.Z)
+	local direction = target - origin
+	local distance = direction.Magnitude
+	local escapeRadius = escapeConfig.EscapeRadius or 6
+
+	if distance <= escapeRadius then
+		markEscaped(record)
+		return true
+	end
+
+	if distance < 0.1 then
+		return true
+	end
+
+	local speed = escapeConfig.EscapeSpeed or 12
+	local stepDistance = math.min(speed * deltaTime, math.max(0, distance - escapeRadius))
+	local nextPosition = origin + direction.Unit * stepDistance
+	local nextCFrame = CFrame.lookAt(nextPosition, Vector3.new(target.X, nextPosition.Y, target.Z))
+
+	pivotAlienRootTo(record, nextCFrame)
+
+	return true
+end
+
 local function attackNearbyPlayers(record)
 	local attackConfig = context.Config.RevealedAlienAttack or {}
 	local range = attackConfig.Range or 10
-	local damage = attackConfig.Damage or 15
+	local damage = (attackConfig.Damage or 15) * AlienService.GetDamageMultiplier()
 	local currentAggression = AlienService.GetAggressionMultiplier()
 	local cooldown = (attackConfig.Cooldown or 1.5) / currentAggression
 	local now = os.clock()
@@ -217,8 +364,18 @@ local function attackNearbyPlayers(record)
 
 			if distance <= range then
 				record.LastAttackAt = now
-				humanoid:TakeDamage(damage)
-				print("[AlienService] Revealed alien attacked:", record.NPCId, player.Name)
+
+				if context.Services.PlayerService
+					and context.Round.State == "Active"
+					and humanoid.Health - damage <= 0
+					and context.Services.PlayerService.DownPlayer(player)
+				then
+					print("[AlienService] Revealed alien downed:", record.NPCId, player.Name)
+				else
+					humanoid:TakeDamage(damage)
+					print("[AlienService] Revealed alien attacked:", record.NPCId, player.Name)
+				end
+
 				return
 			end
 		end
@@ -241,33 +398,82 @@ function AlienService.GetChaseAggressionMultiplier()
 	return chaseAggressionMultiplier
 end
 
+function AlienService.GetDamageMultiplier()
+	if os.clock() > aggressionUntil then
+		return 1
+	end
+
+	return damageMultiplier
+end
+
 function AlienService.GetAggressionSnapshot()
 	local remaining = math.max(0, aggressionUntil - os.clock())
 
 	return {
 		AttackMultiplier = AlienService.GetAggressionMultiplier(),
 		ChaseMultiplier = AlienService.GetChaseAggressionMultiplier(),
+		DamageMultiplier = AlienService.GetDamageMultiplier(),
 		Remaining = remaining
 	}
 end
 
-function AlienService.BoostAggression(duration, multiplier, chaseMultiplier)
+function AlienService.BoostAggression(duration, multiplier, chaseMultiplier, damageBoostMultiplier)
 	if os.clock() > aggressionUntil then
 		aggressionMultiplier = 1
 		chaseAggressionMultiplier = 1
+		damageMultiplier = 1
 	end
 
 	aggressionUntil = math.max(aggressionUntil, os.clock() + duration)
 	aggressionMultiplier = math.max(aggressionMultiplier, multiplier or 1)
 	chaseAggressionMultiplier = math.max(chaseAggressionMultiplier, chaseMultiplier or multiplier or 1)
+	damageMultiplier = math.max(damageMultiplier, damageBoostMultiplier or 1)
 
-	print("[AlienService] Aggression boosted:", aggressionMultiplier, chaseAggressionMultiplier, duration)
+	print("[AlienService] Aggression boosted:", aggressionMultiplier, chaseAggressionMultiplier, damageMultiplier, duration)
 
 	return {
 		Multiplier = aggressionMultiplier,
 		ChaseMultiplier = chaseAggressionMultiplier,
+		DamageMultiplier = damageMultiplier,
 		EndsAt = aggressionUntil
 	}
+end
+
+local function triggerNestingRage(record)
+	local nestingConfig = context.Config.NestingEvent or {}
+	local modifier = context.Services.RoundService.GetModifier("NestingEvent")
+
+	if not modifier or modifier.RageTriggered or nestingConfig.TriggerOnJuvenileDeath == false then
+		return nil
+	end
+
+	context.Services.RoundService.SetModifierState("NestingEvent", {
+		RageTriggered = true,
+		JuvenileEliminated = true
+	})
+
+	local boost = AlienService.BoostAggression(
+		nestingConfig.RageDuration or 20,
+		nestingConfig.AggressionMultiplier or 1.5,
+		nestingConfig.ChaseSpeedMultiplier or 1.35,
+		nestingConfig.DamageMultiplier or 1.25
+	)
+
+	if context.Services.MapEventService then
+		context.Services.MapEventService.TriggerNestingRagePulse("JuvenileEliminated")
+	end
+
+	context.Services.RemoteService.BroadcastMissionWarning({
+		Text = nestingConfig.RageWarning or "NESTING EVENT: protector rage state active.",
+		Severity = "Emergency",
+		ScreenPulse = true,
+		ScreenPulseDuration = 1.1,
+		NPCId = record.NPCId
+	})
+
+	print("[AlienService] Nesting rage triggered:", record.NPCId)
+
+	return boost
 end
 
 function AlienService.Init(sharedContext)
@@ -300,6 +506,7 @@ function AlienService.SelectAliens(npcs)
 			AlienType = "Galloid",
 			Revealed = false,
 			Eliminated = false,
+			Escaped = false,
 			Health = getAlienMaxHealth(),
 			MaxHealth = getAlienMaxHealth(),
 			Traits = traits,
@@ -308,6 +515,20 @@ function AlienService.SelectAliens(npcs)
 
 		alienByNpcId[npc.Id] = record
 		table.insert(alienRecords, record)
+	end
+
+	if context.Services.RoundService.HasModifier("NestingEvent") and #alienRecords > 0 then
+		local nestingConfig = context.Config.NestingEvent or {}
+		local juvenileRecord = alienRecords[getRandom():NextInteger(1, #alienRecords)]
+
+		juvenileRecord.IsJuvenile = true
+		juvenileRecord.AlienType = "Juvenile Galloid"
+		juvenileRecord.Health = nestingConfig.JuvenileHealth or juvenileRecord.Health
+		juvenileRecord.MaxHealth = juvenileRecord.Health
+		context.Services.NPCService.ApplyJuvenileProfile(juvenileRecord.NPCId, nestingConfig)
+		context.Services.RoundService.SetModifierState("NestingEvent", {
+			JuvenileNPCId = juvenileRecord.NPCId
+		})
 	end
 
 	for index = 1, math.min(context.Config.FullProfileDecoyCount or 0, #candidates) do
@@ -333,12 +554,60 @@ function AlienService.IsAlien(npcId)
 	return alienByNpcId[npcId] ~= nil
 end
 
+function AlienService.IsJuvenile(npcId)
+	local record = alienByNpcId[npcId]
+
+	return record and record.IsJuvenile == true
+end
+
 function AlienService.RevealAlien(npcId)
 	local record = alienByNpcId[npcId]
 
 	if record then
+		local wasRevealed = record.Revealed
 		record.Revealed = true
 		record.LastAttackAt = 0
+
+		if not wasRevealed and not record.RevealPresentationSent then
+			local revealConfig = context.Config.RevealPresentation or {}
+			record.RevealPresentationSent = true
+
+			context.Services.RemoteService.BroadcastMissionWarning({
+				Text = record.IsJuvenile
+					and ((context.Config.NestingEvent or {}).JuvenileRevealWarning or "NESTING EVENT: juvenile Galloid confirmed.")
+					or (revealConfig.Warning or "ENTITY REVEALED: hostile disguise collapsed."),
+				Severity = "Reveal",
+				ScreenPulse = true,
+				ScreenPulseDuration = revealConfig.ScreenPulseDuration or 1,
+				NPCId = npcId
+			})
+
+			if context.Services.MapEventService then
+				context.Services.MapEventService.TriggerPanicPulse("AlienReveal")
+			end
+		end
+
+		local escapeConfig = getEscapeConfig()
+
+		if escapeConfig.Enabled and not record.EscapeRolled and not record.Eliminated and not record.Escaped then
+			record.EscapeRolled = true
+
+			if getRandom():NextNumber() <= (escapeConfig.EscapeChanceOnReveal or 0) then
+				local escapePoint = chooseEscapePoint()
+				local delaySeconds = escapeConfig.EscapeDelaySeconds or 8
+				local warningLeadTime = escapeConfig.EscapeWarningLeadTime or 3
+
+				if escapePoint then
+					record.EscapeThreat = true
+					record.EscapePointName = escapePoint.Name
+					record.EscapeTargetPosition = escapePoint.Position
+					record.EscapeStartsAt = os.clock() + delaySeconds
+					record.EscapeWarningAt = os.clock() + math.max(0, delaySeconds - warningLeadTime)
+
+					print("[AlienService] Alien escape threat:", npcId, escapePoint.Name)
+				end
+			end
+		end
 	end
 
 	return record
@@ -459,7 +728,7 @@ end
 function AlienService.DamageAlien(npcId, damage, player)
 	local record = alienByNpcId[npcId]
 
-	if not record or not record.Revealed or record.Eliminated then
+	if not record or not record.Revealed or record.Eliminated or record.Escaped then
 		return nil
 	end
 
@@ -468,8 +737,13 @@ function AlienService.DamageAlien(npcId, damage, player)
 
 	if record.Health <= 0 then
 		record.Eliminated = true
+		record.Escaping = false
 		context.Services.NPCService.MarkEliminated(npcId)
 		print("[AlienService] Alien eliminated:", npcId, player and player.Name or "Unknown")
+
+		if record.IsJuvenile then
+			triggerNestingRage(record)
+		end
 	else
 		print("[AlienService] Alien damaged:", npcId, record.Health)
 	end
@@ -485,7 +759,7 @@ end
 function AlienService.StunAlien(npcId, duration)
 	local record = alienByNpcId[npcId]
 
-	if not record or not record.Revealed or record.Eliminated then
+	if not record or not record.Revealed or record.Eliminated or record.Escaped then
 		return nil
 	end
 
@@ -518,11 +792,18 @@ function AlienService.StartAttackLoop()
 
 			task.wait(tickInterval)
 
-			if attackConfig.Enabled and context.Round.State == "Active" then
+			if context.Round.State == "Active" then
 				for _, record in ipairs(alienRecords) do
-					if record.Revealed and not record.Eliminated then
-						chaseNearestPlayer(record, tickInterval)
-						attackNearbyPlayers(record)
+					if record.Revealed and not record.Eliminated and not record.Escaped then
+						local escapeHandled = moveEscapingAlien(record, tickInterval)
+
+						if not escapeHandled and not record.IsJuvenile then
+							chaseNearestPlayer(record, tickInterval)
+						end
+
+						if attackConfig.Enabled and not record.IsJuvenile then
+							attackNearbyPlayers(record)
+						end
 					else
 						sendChaseStopWarning(record)
 					end
@@ -543,7 +824,8 @@ function AlienService.GetPublicReveal(npcId)
 
 	return {
 		NPCId = record.NPCId,
-		AlienType = record.AlienType
+		AlienType = record.AlienType,
+		IsJuvenile = record.IsJuvenile == true
 	}
 end
 
@@ -565,7 +847,9 @@ function AlienService.GetPublicRevealedAliens()
 				AlienType = record.AlienType,
 				Health = record.Health,
 				MaxHealth = record.MaxHealth,
-				Eliminated = record.Eliminated
+				Eliminated = record.Eliminated,
+				Escaped = record.Escaped == true,
+				IsJuvenile = record.IsJuvenile == true
 			})
 		end
 	end
@@ -607,8 +891,34 @@ function AlienService.AreAllAliensEliminated()
 	return true
 end
 
+function AlienService.HasEscapedAlien()
+	for _, record in ipairs(alienRecords) do
+		if record.Escaped then
+			return true
+		end
+	end
+
+	return false
+end
+
 function AlienService.GetAlienRecords()
 	return alienRecords
+end
+
+function AlienService.GetActiveAlienPositions()
+	local positions = {}
+
+	for _, record in ipairs(alienRecords) do
+		if not record.Eliminated and not record.Escaped then
+			local root = getAlienRoot(record)
+
+			if root then
+				table.insert(positions, root.Position)
+			end
+		end
+	end
+
+	return positions
 end
 
 return AlienService

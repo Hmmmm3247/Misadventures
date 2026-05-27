@@ -145,6 +145,18 @@ function CombatService.Attack(player)
 		return result
 	end
 
+	if context.Services.PlayerService.IsPlayerDowned(player) then
+		local result = buildResult(false, "PlayerDowned")
+		context.Services.RemoteService.SendCombatResult(player, result)
+		return result
+	end
+
+	if context.Services.PlayerService.IsMimicPlayer(player) then
+		local result = buildResult(false, "MimicCannotUseWeapon")
+		context.Services.RemoteService.SendCombatResult(player, result)
+		return result
+	end
+
 	local combatConfig = context.Config.PlayerCombat or {}
 	local cooldown = combatConfig.Cooldown or 0.85
 	local now = os.clock()

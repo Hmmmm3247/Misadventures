@@ -92,6 +92,51 @@ Use this checklist when testing in Roblox Studio on Windows.
 16. Confirm the alien darkens and stops fighting when eliminated.
 17. Confirm eliminating all aliens ends the round with a player win.
 
+### Alien Escape Test
+
+For a focused escape test, temporarily set `Config.AlienEscape.EscapeChanceOnReveal = 1`.
+
+1. Start an active round.
+2. Reveal one alien through accusation or the debug `Reveal 1` button.
+3. Confirm the HUD shows `CONTAINMENT BREACH` before or as the alien starts escaping.
+4. Watch the alien move toward one of the map escape points: `SouthernEntry`, `BarnBackExit`, or `CornfieldEdge`.
+5. Hit the alien while it is escaping and confirm its health still drops.
+6. Use Hunter stun or Engineer sensor and confirm escape movement pauses briefly.
+7. Eliminate the alien before it reaches the escape point and confirm the escape cancels.
+8. Let the alien reach the escape point and confirm the round ends with `AlienEscaped`.
+
+Tune these first if escape feels wrong:
+
+- `Config.AlienEscape.EscapeChanceOnReveal`
+- `Config.AlienEscape.EscapeDelaySeconds`
+- `Config.AlienEscape.EscapeSpeed`
+- `Config.AlienEscape.EscapeRadius`
+- `Config.AlienEscape.EscapeWarningLeadTime`
+
+### Downed And Revive Test
+
+Use a local multiplayer Studio session with at least two players when testing revive.
+
+1. Start an active round and reveal or spawn a chase test alien.
+2. Let the revealed alien attack one player until their health reaches zero.
+3. Confirm the player is marked `DOWNED` in their HUD instead of instantly ending the round when another teammate is still active.
+4. Confirm the downed player moves slowly and receives downed feedback.
+5. Confirm teammates receive an operative-down warning and can see a `Revive` prompt near the downed player.
+6. Have a non-downed teammate hold the revive prompt inside `Config.DownedPlayers.ReviveRange`.
+7. Confirm the target stands back up, gets `Config.DownedPlayers.ReviveHealth`, and the revive prompt disappears.
+8. Repeat with a Medic and confirm the revived player returns with `Config.DownedPlayers.MedicReviveHealth`.
+9. Confirm downed players cannot attack or use class abilities.
+10. Confirm revealed aliens stop choosing downed players as chase/attack targets while another active player is available.
+11. Let every player become downed or eliminated and confirm the round ends with `AllPlayersDown`.
+
+Tune these first if revive feels wrong:
+
+- `Config.DownedPlayers.WalkSpeed`
+- `Config.DownedPlayers.ReviveRange`
+- `Config.DownedPlayers.ReviveHoldDuration`
+- `Config.DownedPlayers.ReviveHealth`
+- `Config.DownedPlayers.MedicReviveHealth`
+
 ### NPC Ambient Behavior Test
 
 During an active round, watch unrevealed NPCs for:
@@ -270,6 +315,68 @@ Recommended debug tuning loop:
 5. Adjust chase/attack values in `Config.lua`.
 6. Stop Play, let Rojo resync, and retest.
 7. Set `Enabled = false` before normal playtests.
+
+## First Studio Session: Known Blockers
+
+These are confirmed problems that require Roblox Studio to fix. Work through them in this order.
+
+### Priority 1 — Must Fix Before Any Real Playtest
+
+**Audio is broken.**
+Every sound in `Config.Audio` uses an `rbxasset://sounds/...` path, which are legacy internal engine sounds. Several are semantically wrong — `impact_water.mp3` is labelled `DistantClucking`, `bass.wav` is labelled `Whispers`, `uuhhh.wav` is used for both wrong accusation and metal creaking. The game will sound absurd. Replace every `SoundId` field with a real Roblox Marketplace audio ID (`rbxassetid://...`). Search the Toolbox in Studio for each audio cue by name. This is a one-field swap per sound.
+
+Sounds that need IDs, in rough priority:
+- `AmbientDrone` — low creepy farm ambience, looped
+- `AlienReveal` — sudden sting/shock sound
+- `WrongAccusation` — alarm or error tone
+- `ClueStinger` — short discovery ping
+- `PlayersWin` / `AliensWin` — round result stings
+- All `PositionalCues` entries (DistantClucking, Footsteps, Whispers, Scratching, RadioInterference, LightFlicker, BarnDoorSlam, etc.)
+
+**The Alien Zapper has no model.**
+`CombatService` creates a `Tool` with `RequiresHandle = false`. Players equip an invisible weapon. Add a simple Part or MeshPart as the tool handle in Studio and parent it inside the tool. Even a glowing wand-shaped part is enough for MVP.
+
+**`Config.MinPlayers = 1` is a testing override.**
+Change it to `2` or `3` before any public playtest. The social deduction loop makes no sense solo.
+
+### Priority 2 — Fix During First Balancing Pass
+
+**No pathfinding.**
+Revealed alien chase and escape use direct linear movement (`AlienService`). Aliens will slide through buildings. Two options:
+1. Keep the map flat and clear enough that direct movement works — no obstacles in alien patrol paths.
+2. Implement `PathfindingService` later. This is a meaningful refactor of `chaseNearestPlayer` and `moveEscapingAlien` in `AlienService.lua`.
+
+For now, move escape point positions and map props so there is a clear straight-line path from likely alien positions to each escape point (`SouthernEntry`, `BarnBackExit`, `CornfieldEdge`).
+
+**Building visuals are box primitives.**
+General Store, Barn, Chicken Coop, etc. are colored rectangular Parts. The detail props added in the last sprint (roofs, chimney, well structure, hay bales, etc.) help, but the landmarks need proper 3D models to read as real buildings. Options:
+- Search the Toolbox for free farm model packs (search `farm barn`, `wooden shack`, `rural store`). Swap the MapLayout Part definitions for Model references.
+- Build simple structures directly in Studio and replace the programmatic `createArenaProps` approach.
+- The service architecture is compatible with either: `MapService` builds the map on boot, so replacing Part creation with `Model:Clone()` calls is isolated.
+
+**NPC models are Part primitives.**
+NPCs are built from basic Parts (torso, head, arms, legs, belt, collar). The symmetry fix and skin tone variety helps, but they still look blocky. Options:
+- Use Roblox's default R6 character rig and apply `BrickColor` variations and simple accessories instead of the custom model. Requires refactoring `createNPCModel` in `NPCService.lua`.
+- Import simple custom humanoid meshes via MeshPart (Blockbench is a free tool for this).
+
+**Results screen shows almost nothing.**
+`RoundResults` in `Main.client.lua` only shows `RESULT: Players`. Players get no summary — they don't see which NPCs were aliens, who escaped, or the final score. Add alien name reveal to the results broadcast from `ResultService` and surface it in the client.
+
+### Priority 3 — Before Soft Launch
+
+**No data persistence.**
+`PlayerService` resets every session. There is no `DataStoreService` integration. Player stats, round history, and unlocks reset on disconnect. Implement profile saving before inviting repeat players.
+
+**No monetization.**
+No developer products, no passes. Not blocking for playtests but needed before any public release on the Roblox platform.
+
+**HUD is PC-only.**
+The panel is positioned at a fixed pixel offset (`UDim2.fromOffset(18, 18)`) with fixed pixel widths. It will overflow on small screens and is not touch-friendly. Not critical for PC playtests.
+
+**`DebugTesting.Enabled` must be `false` for public playtests.**
+Debug controls let any player reveal aliens, skip rounds, and force penalties. `Config.DebugTesting.Enabled = false` is the default, but verify it before publishing.
+
+---
 
 ## MVP Scope
 

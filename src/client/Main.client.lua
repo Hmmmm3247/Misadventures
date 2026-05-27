@@ -19,6 +19,7 @@ local MissionWarning = Remotes:WaitForChild("MissionWarning")
 local RoundResults = Remotes:WaitForChild("RoundResults")
 local SelectClass = Remotes:WaitForChild("SelectClass")
 local UseClassAbility = Remotes:WaitForChild("UseClassAbility")
+local MimicAction = Remotes:WaitForChild("MimicAction")
 local PlacePing = Remotes:WaitForChild("PlacePing")
 local DebugCommand = Remotes:WaitForChild("DebugCommand")
 
@@ -56,7 +57,8 @@ local panel = Instance.new("Frame")
 panel.Name = "Panel"
 panel.AnchorPoint = Vector2.new(0, 0)
 panel.Position = UDim2.fromOffset(18, 18)
-panel.Size = debugControlsEnabled and UDim2.fromOffset(430, 728) or UDim2.fromOffset(430, 632)
+panel.Size = UDim2.new(0, 430, 0, 0)
+panel.AutomaticSize = Enum.AutomaticSize.Y
 panel.BackgroundColor3 = Color3.fromRGB(9, 13, 13)
 panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
@@ -125,17 +127,18 @@ clueLabel.Size = UDim2.new(1, 0, 0, 104)
 clueLabel.LayoutOrder = 10
 
 local suspectLabel = createLabel("Suspects", 14, Color3.fromRGB(225, 203, 170))
-suspectLabel.Size = UDim2.new(1, 0, 0, 58)
+suspectLabel.Size = UDim2.new(1, 0, 0, 82)
 suspectLabel.LayoutOrder = 11
 
 local feedbackLabel = createLabel("Feedback", 14, Color3.fromRGB(210, 214, 205))
-feedbackLabel.Size = UDim2.new(1, 0, 0, 34)
-feedbackLabel.LayoutOrder = 13
+feedbackLabel.Size = UDim2.new(1, 0, 0, 0)
+feedbackLabel.AutomaticSize = Enum.AutomaticSize.Y
+feedbackLabel.LayoutOrder = 15
 
 local resultLabel = createLabel("Result", 20, Color3.fromRGB(215, 232, 190))
 resultLabel.Font = Enum.Font.GothamBold
 resultLabel.Size = UDim2.new(1, 0, 0, 28)
-resultLabel.LayoutOrder = 14
+resultLabel.LayoutOrder = 16
 
 local classPanel = Instance.new("Frame")
 classPanel.Name = "ClassSelect"
@@ -217,13 +220,28 @@ abilityButton.Font = Enum.Font.GothamBold
 abilityButton.Text = "Use Class Ability"
 abilityButton.TextColor3 = Color3.fromRGB(238, 246, 232)
 abilityButton.TextSize = 14
-abilityButton.LayoutOrder = 11
+abilityButton.LayoutOrder = 12
 abilityButton.Parent = panel
+
+local mimicButton = Instance.new("TextButton")
+mimicButton.Name = "MimicAttackButton"
+mimicButton.Size = UDim2.new(1, 0, 0, 34)
+mimicButton.BackgroundColor3 = Color3.fromRGB(92, 38, 46)
+mimicButton.BorderSizePixel = 0
+mimicButton.Font = Enum.Font.GothamBold
+mimicButton.Text = "Mimic Strike"
+mimicButton.TextColor3 = Color3.fromRGB(255, 226, 226)
+mimicButton.TextSize = 14
+mimicButton.LayoutOrder = 13
+mimicButton.Visible = false
+mimicButton.Parent = panel
 
 local abilityCooldownEndsAt = 0
 local combatCooldownEndsAt = 0
 local pingCooldownEndsAt = 0
+local mimicCooldownEndsAt = 0
 local abilityButtonBaseText = "Use Class Ability"
+local isMimic = false
 
 local function setAbilityCooldown(seconds)
 	abilityCooldownEndsAt = math.max(abilityCooldownEndsAt, os.clock() + seconds)
@@ -231,6 +249,10 @@ end
 
 local function setCombatCooldown(seconds)
 	combatCooldownEndsAt = math.max(combatCooldownEndsAt, os.clock() + seconds)
+end
+
+local function setMimicCooldown(seconds)
+	mimicCooldownEndsAt = math.max(mimicCooldownEndsAt, os.clock() + seconds)
 end
 
 local function startScreenPulse(duration)
@@ -241,7 +263,7 @@ local pingPanel = Instance.new("Frame")
 pingPanel.Name = "PingPanel"
 pingPanel.BackgroundTransparency = 1
 pingPanel.Size = UDim2.new(1, 0, 0, 34)
-pingPanel.LayoutOrder = 12
+pingPanel.LayoutOrder = 14
 pingPanel.Parent = panel
 
 local pingLayout = Instance.new("UIListLayout")
@@ -350,7 +372,7 @@ if debugControlsEnabled then
 	debugPanel.Name = "DebugPanel"
 	debugPanel.BackgroundTransparency = 1
 	debugPanel.Size = UDim2.new(1, 0, 0, 76)
-	debugPanel.LayoutOrder = 15
+	debugPanel.LayoutOrder = 17
 	debugPanel.Parent = panel
 
 	local debugLayout = Instance.new("UIListLayout")
@@ -420,11 +442,45 @@ abilityButton.Activated:Connect(function()
 	end)
 end)
 
+mimicButton.Activated:Connect(function()
+	if not isMimic or os.clock() < mimicCooldownEndsAt then
+		return
+	end
+
+	feedbackLabel.Text = "Mimic strike..."
+
+	task.spawn(function()
+		local success, result = pcall(function()
+			return MimicAction:InvokeServer("Attack")
+		end)
+
+		if not success then
+			feedbackLabel.Text = "Mimic action failed"
+			return
+		end
+
+		if result and result.Accepted then
+			if result.Cooldown then
+				setMimicCooldown(result.Cooldown)
+			end
+
+			feedbackLabel.Text = "MIMIC STRIKE: " .. tostring(result.Target or "target")
+		else
+			if result and result.CooldownRemaining then
+				setMimicCooldown(result.CooldownRemaining)
+			end
+
+			feedbackLabel.Text = "MIMIC BLOCKED: " .. tostring(result and result.Reason or "Unknown")
+		end
+	end)
+end)
+
 task.spawn(function()
 	while gui.Parent do
 		local remaining = math.max(0, abilityCooldownEndsAt - os.clock())
 		local combatRemaining = math.max(0, combatCooldownEndsAt - os.clock())
 		local pingRemaining = math.max(0, pingCooldownEndsAt - os.clock())
+		local mimicRemaining = math.max(0, mimicCooldownEndsAt - os.clock())
 		local pulseRemaining = math.max(0, screenPulseEndsAt - os.clock())
 
 		if pulseRemaining > 0 then
@@ -450,6 +506,20 @@ task.spawn(function()
 			abilityButton.AutoButtonColor = true
 			abilityButton.BackgroundColor3 = Color3.fromRGB(64, 83, 72)
 			abilityButton.TextColor3 = Color3.fromRGB(238, 246, 232)
+		end
+
+		mimicButton.Visible = isMimic
+
+		if mimicRemaining > 0 then
+			mimicButton.Text = "Mimic Strike: " .. tostring(math.ceil(mimicRemaining)) .. "s"
+			mimicButton.AutoButtonColor = false
+			mimicButton.BackgroundColor3 = Color3.fromRGB(48, 30, 36)
+			mimicButton.TextColor3 = Color3.fromRGB(180, 145, 150)
+		else
+			mimicButton.Text = "Mimic Strike"
+			mimicButton.AutoButtonColor = true
+			mimicButton.BackgroundColor3 = Color3.fromRGB(92, 38, 46)
+			mimicButton.TextColor3 = Color3.fromRGB(255, 226, 226)
 		end
 
 		if combatRemaining > 0 then
@@ -486,13 +556,21 @@ local function formatTime(seconds)
 end
 
 local function createSound(name, soundConfig)
-	if not audioConfig.Enabled or not soundConfig or not soundConfig.SoundId or soundConfig.SoundId == "" then
+	if not audioConfig.Enabled or not soundConfig then
+		return nil
+	end
+
+	local resolvedId = (soundConfig.MarketplaceId and soundConfig.MarketplaceId ~= "")
+		and ("rbxassetid://" .. soundConfig.MarketplaceId)
+		or soundConfig.SoundId
+
+	if not resolvedId or resolvedId == "" then
 		return nil
 	end
 
 	local sound = Instance.new("Sound")
 	sound.Name = name
-	sound.SoundId = soundConfig.SoundId
+	sound.SoundId = resolvedId
 	sound.Volume = (soundConfig.Volume or 0.5) * (audioConfig.MasterVolume or 1)
 	sound.PlaybackSpeed = soundConfig.PlaybackSpeed or 1
 	sound.Looped = soundConfig.Looped == true
@@ -565,7 +643,7 @@ NPCSnapshot.OnClientEvent:Connect(function(npcs)
 	for _, npc in ipairs(npcs) do
 		if npc.Revealed then
 			local healthText = tostring(npc.Health or 0) .. "/" .. tostring(npc.MaxHealth or 0)
-			local status = npc.Eliminated and "down" or healthText
+			local status = npc.Escaped and "escaped" or (npc.Eliminated and "down" or healthText)
 
 			table.insert(revealed, tostring(npc.DisplayName or npc.Id) .. " " .. status)
 		end
@@ -601,20 +679,30 @@ end)
 
 SuspectSnapshot.OnClientEvent:Connect(function(snapshot)
 	local names = {}
+	local suspiciousNames = {}
 
 	for _, suspect in ipairs(snapshot.Suspects or {}) do
-		table.insert(names, suspect.DisplayName)
+		local scoreText = suspect.SuspicionScore and (" [" .. tostring(suspect.SuspicionScore) .. "]") or ""
+		table.insert(names, tostring(suspect.DisplayName) .. scoreText)
+	end
+
+	for _, suspect in ipairs(snapshot.HighlySuspicious or {}) do
+		table.insert(suspiciousNames, tostring(suspect.DisplayName) .. " [" .. tostring(suspect.SuspicionScore or 0) .. "]")
 	end
 
 	if #names > 0 then
-		suspectLabel.Text = "MATCHING HOSTS: " .. tostring(snapshot.SuspectCount) .. "\n" .. table.concat(names, ", ")
+		local suspiciousText = #suspiciousNames > 0 and ("\nHIGHLY SUSPICIOUS: " .. table.concat(suspiciousNames, ", ")) or ""
+		suspectLabel.Text = "MATCHING HOSTS: " .. tostring(snapshot.SuspectCount) .. "\n" .. table.concat(names, ", ") .. suspiciousText
+	elseif #suspiciousNames > 0 then
+		suspectLabel.Text = "MATCHING HOSTS: " .. tostring(snapshot.SuspectCount or 0) .. "\nHIGHLY SUSPICIOUS: " .. table.concat(suspiciousNames, ", ")
 	else
 		suspectLabel.Text = "MATCHING HOSTS: " .. tostring(snapshot.SuspectCount or 0) .. "\nNO UNREVEALED MATCHES"
 	end
 end)
 
 NPCRevealed.OnClientEvent:Connect(function(reveal)
-	feedbackLabel.Text = "ENTITY CONFIRMED: " .. reveal.NPCId .. " / " .. reveal.AlienType
+	feedbackLabel.Text = "ENTITY CONFIRMED: " .. reveal.NPCId .. " / " .. reveal.AlienType .. " / PANIC EVENT"
+	startScreenPulse((Config.RevealPresentation and Config.RevealPresentation.ScreenPulseDuration) or 1)
 	playSound(alienReveal)
 end)
 
@@ -661,13 +749,28 @@ end)
 
 PlayerSnapshot.OnClientEvent:Connect(function(snapshot)
 	currentClassName = snapshot.ClassName
+	isMimic = snapshot.IsMimic == true
 	updateClassButtons()
+	local downedText = snapshot.Downed and " / DOWNED" or ""
+	local eliminatedText = snapshot.IsEliminated and " / ELIMINATED" or ""
+	local mimicText = isMimic and " / MIMIC HOST" or ""
 	playerLabel.Text = "OPERATIVE: "
 		.. tostring(snapshot.ClassDisplayName or snapshot.ClassName or "Unknown")
 		.. " / VITALS: "
 		.. tostring(snapshot.Health or 0)
 		.. "/"
 		.. tostring(snapshot.MaxHealth or 0)
+		.. downedText
+		.. eliminatedText
+		.. mimicText
+
+	if isMimic then
+		feedbackLabel.Text = tostring(snapshot.MimicObjective or "NEW OBJECTIVE: ELIMINATE THE PARTY")
+	elseif snapshot.Downed then
+		feedbackLabel.Text = "YOU ARE DOWN: wait for teammate revive"
+	elseif snapshot.IsEliminated then
+		feedbackLabel.Text = "SIGNAL LOST: awaiting round outcome"
+	end
 end)
 
 MissionWarning.OnClientEvent:Connect(function(warning)
@@ -684,7 +787,36 @@ end)
 
 RoundResults.OnClientEvent:Connect(function(results)
 	resultLabel.Text = "RESULT: " .. tostring(results.Winner)
-	feedbackLabel.Text = "MISSION CLOSED: " .. tostring(results.Reason)
+
+	local lines = {}
+
+	local reasonText = results.Reason == "AlienEscaped" and "CONTAINMENT FAILED: alien escaped"
+		or results.Reason == "AllAliensEliminated" and "MISSION COMPLETE: all entities neutralized"
+		or results.Reason == "AllPlayersDown" and "SIGNAL LOST: all operatives down"
+		or ("MISSION CLOSED: " .. tostring(results.Reason))
+	table.insert(lines, reasonText)
+
+	if results.AccusationCount and results.AccusationCount > 0 then
+		local wrongText = results.WrongAccusations and results.WrongAccusations > 0
+			and (" / " .. tostring(results.WrongAccusations) .. " FALSE")
+			or ""
+		table.insert(lines, "ACCUSATIONS: " .. tostring(results.AccusationCount) .. wrongText)
+	end
+
+	if results.RevealedAliens and #results.RevealedAliens > 0 then
+		local alienLines = {}
+		for _, alien in ipairs(results.RevealedAliens) do
+			local name = tostring(alien.DisplayName or alien.NPCId)
+			local status = alien.Eliminated and "NEUTRALIZED"
+				or alien.Escaped and "ESCAPED"
+				or "ACTIVE"
+			local tag = alien.IsJuvenile and " [JUVENILE]" or ""
+			table.insert(alienLines, name .. ": " .. status .. tag)
+		end
+		table.insert(lines, "ENTITIES:\n" .. table.concat(alienLines, "\n"))
+	end
+
+	feedbackLabel.Text = table.concat(lines, "\n")
 
 	if results.Winner == "Players" then
 		playSound(playersWin)

@@ -16,6 +16,14 @@ local function getCharacterRoot(player)
 end
 
 local function getLivingHumanoid(player)
+	if context.Services.PlayerService and context.Services.PlayerService.IsPlayerDowned(player) then
+		return nil
+	end
+
+	if context.Services.PlayerService and context.Services.PlayerService.IsMimicPlayer(player) then
+		return nil
+	end
+
 	local character = player.Character
 
 	if not character then
@@ -337,6 +345,14 @@ end
 function ClassAbilityService.UseAbility(player)
 	if context.Round.State ~= "Active" then
 		return reject("RoundNotActive")
+	end
+
+	if context.Services.PlayerService.IsPlayerDowned(player) then
+		return reject("PlayerDowned")
+	end
+
+	if context.Services.PlayerService.IsMimicPlayer(player) then
+		return reject("MimicCannotUseClassAbility")
 	end
 
 	local className = context.Services.PlayerService.GetPlayerClass(player)

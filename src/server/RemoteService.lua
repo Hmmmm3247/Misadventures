@@ -65,6 +65,7 @@ function RemoteService.Init(sharedContext)
 	remotes.AccuseNPC = getOrCreateRemote("RemoteFunction", "AccuseNPC")
 	remotes.SelectClass = getOrCreateRemote("RemoteFunction", "SelectClass")
 	remotes.UseClassAbility = getOrCreateRemote("RemoteFunction", "UseClassAbility")
+	remotes.MimicAction = getOrCreateRemote("RemoteFunction", "MimicAction")
 	remotes.PlacePing = getOrCreateRemote("RemoteFunction", "PlacePing")
 	remotes.DebugCommand = getOrCreateRemote("RemoteFunction", "DebugCommand")
 end
@@ -83,6 +84,10 @@ end
 
 function RemoteService.BindClassAbilityHandler(callback)
 	remotes.UseClassAbility.OnServerInvoke = callback
+end
+
+function RemoteService.BindMimicActionHandler(callback)
+	remotes.MimicAction.OnServerInvoke = callback
 end
 
 function RemoteService.BindPlayerPingHandler(callback)

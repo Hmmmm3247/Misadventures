@@ -8,6 +8,7 @@ local npcById = {}
 local promptConnections = {}
 local behaviorLoopRunning = false
 local lastSuspicionByNpcId = {}
+local lastSuspicionSnapshotAt = 0
 local random = Random.new()
 
 local bodyColors = {
@@ -16,6 +17,14 @@ local bodyColors = {
 	Color3.fromRGB(72, 94, 70),
 	Color3.fromRGB(91, 73, 101),
 	Color3.fromRGB(102, 66, 70)
+}
+
+local skinTones = {
+	Color3.fromRGB(190, 176, 153),
+	Color3.fromRGB(178, 162, 138),
+	Color3.fromRGB(205, 188, 164),
+	Color3.fromRGB(162, 146, 122),
+	Color3.fromRGB(198, 180, 158)
 }
 
 local function clearConnectionList()
@@ -47,6 +56,58 @@ local function getDecoyTraits(index)
 	local traitSet = decoySets[index] or {}
 
 	return table.clone(traitSet)
+end
+
+local function getSuspicionConfig()
+	return context.Config.NPCSuspicion or {}
+end
+
+local function getSuspicionLabel(score)
+	local suspicionConfig = getSuspicionConfig()
+
+	if score >= (suspicionConfig.HighThreshold or 45) then
+		return "Highly Suspicious"
+	end
+
+	if score >= math.floor((suspicionConfig.HighThreshold or 45) * 0.55) then
+		return "Suspicious"
+	end
+
+	return "Low Signal"
+end
+
+local function broadcastSuspicionSnapshot()
+	local suspicionConfig = getSuspicionConfig()
+	local now = os.clock()
+
+	if now - lastSuspicionSnapshotAt < (suspicionConfig.SnapshotCooldown or 3) then
+		return
+	end
+
+	lastSuspicionSnapshotAt = now
+
+	if context.Services.RemoteService then
+		context.Services.RemoteService.BroadcastSuspectSnapshot()
+	end
+end
+
+local function addSuspicion(npc, amount, reason, broadcast)
+	local suspicionConfig = getSuspicionConfig()
+
+	if not suspicionConfig.Enabled or not npc or npc.Revealed then
+		return npc and npc.SuspicionScore or 0
+	end
+
+	local maxScore = suspicionConfig.MaxScore or 100
+	local previousScore = npc.SuspicionScore or 0
+	npc.SuspicionScore = math.clamp(previousScore + amount, 0, maxScore)
+	npc.LastSuspicionReason = reason
+
+	if npc.SuspicionScore ~= previousScore and broadcast then
+		broadcastSuspicionSnapshot()
+	end
+
+	return npc.SuspicionScore
 end
 
 local function getRootCFrame(npc)
@@ -123,6 +184,27 @@ local function faceRandomDirection(npc)
 	end
 end
 
+local function moveNPCStepToward(npc, targetPosition, stepDistance)
+	local rootCFrame = getRootCFrame(npc)
+
+	if not rootCFrame then
+		return false
+	end
+
+	local origin = rootCFrame.Position
+	local target = Vector3.new(targetPosition.X, origin.Y, targetPosition.Z)
+	local direction = target - origin
+
+	if direction.Magnitude < 0.1 then
+		return false
+	end
+
+	local nextPosition = origin + direction.Unit * math.min(stepDistance, direction.Magnitude)
+	pivotRootTo(npc, CFrame.lookAt(nextPosition, Vector3.new(target.X, nextPosition.Y, target.Z)))
+
+	return true
+end
+
 local function getSortedSpawnsByDistance(position)
 	local spawnPoints = context.Services.MapService.GetNPCSpawns()
 
@@ -195,13 +277,62 @@ local function chooseLandmarkSpawn()
 	return spawnPoints[random:NextInteger(1, math.min(sampleCount, #spawnPoints))]
 end
 
+local function getNearestCivilianPosition(npc, range)
+	local rootCFrame = getRootCFrame(npc)
+	local nearestPosition
+	local nearestDistance = range
+
+	if not rootCFrame then
+		return nil
+	end
+
+	for _, otherNpc in ipairs(npcs) do
+		if otherNpc ~= npc and not otherNpc.Revealed and not otherNpc.Eliminated then
+			local otherCFrame = getRootCFrame(otherNpc)
+			local distance = otherCFrame and (otherCFrame.Position - rootCFrame.Position).Magnitude
+
+			if distance and distance <= nearestDistance then
+				nearestPosition = otherCFrame.Position
+				nearestDistance = distance
+			end
+		end
+	end
+
+	return nearestPosition
+end
+
+local function chooseClusterSpawnNearNPC(npc)
+	local rootCFrame = getRootCFrame(npc)
+	local socialConfig = context.Config.NPCSocialBehavior or {}
+	local spawnPoints = context.Services.MapService.GetNPCSpawns()
+	local targetPosition = getNearestCivilianPosition(npc, socialConfig.GroupSearchRange or 38)
+	local maxDistance = socialConfig.GroupClusterRadius or 14
+	local candidates = {}
+
+	if not rootCFrame or not targetPosition then
+		return nil
+	end
+
+	for _, spawn in ipairs(spawnPoints) do
+		if (spawn.Position - targetPosition).Magnitude <= maxDistance and spawn.Name ~= npc.LastSpawnName then
+			table.insert(candidates, spawn)
+		end
+	end
+
+	if #candidates == 0 then
+		return nil
+	end
+
+	return candidates[random:NextInteger(1, #candidates)]
+end
+
 local function moveNPCToSpawn(npc, spawnPart)
 	if not spawnPart or not npc.Model or not npc.Model.PrimaryPart then
 		return
 	end
 
 	local behaviorConfig = context.Config.NPCBehavior or {}
-	local moveSpeed = behaviorConfig.MoveSpeed or 7
+	local moveSpeed = npc.MoveSpeedOverride or behaviorConfig.MoveSpeed or 7
 	local startCFrame = npc.Model.PrimaryPart.CFrame
 	local targetPosition = spawnPart.Position + Vector3.new(0, npc.Model.PrimaryPart.Size.Y / 2, 0)
 	local distance = (targetPosition - startCFrame.Position).Magnitude
@@ -226,15 +357,16 @@ local function moveNPCToSpawn(npc, spawnPart)
 end
 
 local function sendSuspicionIfSeen(npc, fallbackMessage)
-	local suspicionConfig = context.Config.SuspicionEvents or {}
+	local eventConfig = context.Config.SuspicionEvents or {}
+	local suspicionConfig = getSuspicionConfig()
 
-	if not suspicionConfig.Enabled then
+	if not eventConfig.Enabled then
 		return
 	end
 
 	local now = os.clock()
 
-	if now - (lastSuspicionByNpcId[npc.Id] or 0) < (suspicionConfig.Cooldown or 8) then
+	if now - (lastSuspicionByNpcId[npc.Id] or 0) < (eventConfig.Cooldown or 8) then
 		return
 	end
 
@@ -246,13 +378,14 @@ local function sendSuspicionIfSeen(npc, fallbackMessage)
 
 	local nearbyPlayers = getNearbyPlayers(rootCFrame.Position, context.Config.AlienBehavior.PlayerNoticeRange or 28)
 
-	if #nearbyPlayers == 0 or random:NextNumber() > (suspicionConfig.NoticeChance or 0.4) then
+	if #nearbyPlayers == 0 or random:NextNumber() > (eventConfig.NoticeChance or 0.4) then
 		return
 	end
 
-	local messages = suspicionConfig.Messages or {}
+	local messages = eventConfig.Messages or {}
 	local text = fallbackMessage or messages[random:NextInteger(1, math.max(#messages, 1))] or "BEHAVIOR FLAG: host movement anomaly detected."
 	lastSuspicionByNpcId[npc.Id] = now
+	addSuspicion(npc, suspicionConfig.BehaviorAmount or 12, text, true)
 
 	for _, player in ipairs(nearbyPlayers) do
 		context.Services.RemoteService.SendMissionWarning(player, {
@@ -260,6 +393,160 @@ local function sendSuspicionIfSeen(npc, fallbackMessage)
 			Severity = "Suspicion"
 		})
 	end
+end
+
+local function runPlayerLookBehavior(npc)
+	local behaviorConfig = context.Config.NPCBehavior or {}
+
+	if random:NextNumber() > (behaviorConfig.LookAtPlayerChance or 0.15) then
+		return false
+	end
+
+	local rootCFrame = getRootCFrame(npc)
+
+	if not rootCFrame then
+		return false
+	end
+
+	local player = getNearestPlayer(rootCFrame.Position, context.Config.AlienBehavior.PlayerNoticeRange or 28)
+
+	if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+		facePosition(npc, player.Character.HumanoidRootPart.Position)
+		return true
+	end
+
+	return false
+end
+
+local function runSocialBehavior(npc)
+	local socialConfig = context.Config.NPCSocialBehavior or {}
+
+	if socialConfig.Enabled == false then
+		return false
+	end
+
+	local rootCFrame = getRootCFrame(npc)
+
+	if not rootCFrame then
+		return false
+	end
+
+	if random:NextNumber() <= (socialConfig.FaceNearbyNPCChance or 0.08) then
+		local targetPosition = getNearestCivilianPosition(npc, socialConfig.GroupSearchRange or 38)
+
+		if targetPosition then
+			facePosition(npc, targetPosition)
+			return true
+		end
+	end
+
+	if random:NextNumber() <= (socialConfig.GroupClusterChance or 0.12) then
+		local spawn = chooseClusterSpawnNearNPC(npc)
+
+		if spawn then
+			moveNPCToSpawn(npc, spawn)
+			return true
+		end
+	end
+
+	if random:NextNumber() <= (socialConfig.LandmarkStandChance or 0.16) then
+		local spawn = chooseLandmarkSpawn()
+
+		if spawn then
+			moveNPCToSpawn(npc, spawn)
+			task.wait(random:NextNumber(socialConfig.LandmarkStandMin or 1.2, socialConfig.LandmarkStandMax or 2.6))
+			return true
+		end
+	end
+
+	return false
+end
+
+local function runFalsePositiveBehavior(npc)
+	local falseConfig = context.Config.FalsePositiveEvents or {}
+
+	if falseConfig.Enabled == false or context.Services.AlienService.IsAlien(npc.Id) then
+		return false
+	end
+
+	if random:NextNumber() > (falseConfig.NPCBehaviorChance or 0.08) then
+		return false
+	end
+
+	local anomalyType = random:NextInteger(1, 4)
+
+	if anomalyType == 1 then
+		sendSuspicionIfSeen(npc, falseConfig.HarmlessSuspiciousText or "BEHAVIOR FLAG: harmless hesitation matched an entity tell.")
+		task.wait(random:NextNumber(falseConfig.HesitationMin or 0.8, falseConfig.HesitationMax or 1.6))
+		faceRandomDirection(npc)
+	elseif anomalyType == 2 then
+		for _ = 1, random:NextInteger(falseConfig.TwitchCountMin or 1, falseConfig.TwitchCountMax or 2) do
+			local current = getRootCFrame(npc)
+
+			if current then
+				pivotRootTo(npc, current * CFrame.Angles(0, math.rad(random:NextNumber(falseConfig.TwitchAngleMin or -10, falseConfig.TwitchAngleMax or 10)), 0))
+			end
+
+			task.wait(falseConfig.TwitchStepWait or 0.1)
+		end
+
+		sendSuspicionIfSeen(npc, falseConfig.MovementAnomalyText or "BEHAVIOR FLAG: non-host movement anomaly logged.")
+	elseif anomalyType == 3 then
+		if random:NextNumber() <= (falseConfig.PanicMoveChance or 0.5) then
+			sendSuspicionIfSeen(npc, falseConfig.PanicText or "BEHAVIOR FLAG: innocent resident panicked at the wrong moment.")
+			moveNPCToSpawn(npc, chooseNearbySpawn(npc, false))
+		end
+	else
+		if context.Services.RemoteService and random:NextNumber() <= (falseConfig.FakeClueWarningChance or 0.35) then
+			context.Services.RemoteService.BroadcastMissionWarning({
+				Text = falseConfig.FakeClueText or "FALSE SIGNAL: residue trace collapsed into ordinary farm dust.",
+				Severity = "Suspicion",
+				ScreenPulse = false
+			})
+		end
+	end
+
+	addSuspicion(npc, falseConfig.SuspicionAmount or 6, "FalsePositive", true)
+
+	return true
+end
+
+local function runJuvenileBehavior(npc)
+	local nestingConfig = context.Config.NestingEvent or {}
+
+	if not context.Services.AlienService.IsJuvenile(npc.Id) then
+		return false
+	end
+
+	if random:NextNumber() > (nestingConfig.TimidMoveChance or 0.35) then
+		return true
+	end
+
+	if random:NextNumber() <= (nestingConfig.DistressSoundChance or 0.15) and context.Services.MapEventService then
+		context.Services.MapEventService.TriggerNestingHint("JuvenileDistress")
+	end
+
+	if random:NextNumber() <= (nestingConfig.HideNearGroupChance or 0.3) then
+		local spawn = chooseClusterSpawnNearNPC(npc)
+
+		if spawn then
+			moveNPCToSpawn(npc, spawn)
+			return true
+		end
+	end
+
+	if random:NextNumber() <= (nestingConfig.HideNearLandmarkChance or 0.25) then
+		local spawn = chooseLandmarkSpawn()
+
+		if spawn then
+			moveNPCToSpawn(npc, spawn)
+			return true
+		end
+	end
+
+	faceRandomDirection(npc)
+
+	return true
 end
 
 local function runAlienTell(npc)
@@ -273,7 +560,7 @@ local function runAlienTell(npc)
 		return false
 	end
 
-	local tellType = random:NextInteger(1, 4)
+	local tellType = random:NextInteger(1, 6)
 	local rootCFrame = getRootCFrame(npc)
 
 	if not rootCFrame then
@@ -307,7 +594,7 @@ local function runAlienTell(npc)
 		end
 
 		return true
-	else
+	elseif tellType == 4 then
 		if random:NextNumber() <= (behaviorConfig.LightAvoidanceChance or 0.5) then
 			local spawn = chooseNearbySpawn(npc, true)
 
@@ -317,15 +604,60 @@ local function runAlienTell(npc)
 				return true
 			end
 		end
+	elseif tellType == 5 then
+		if random:NextNumber() <= (behaviorConfig.FollowPlayerChance or 0.15) then
+			local player = getNearestPlayer(rootCFrame.Position, behaviorConfig.PlayerNoticeRange or 28)
+			local targetRoot = player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+
+			if targetRoot then
+				sendSuspicionIfSeen(npc, "BEHAVIOR FLAG: one host drifted after an operative.")
+				moveNPCStepToward(npc, targetRoot.Position, behaviorConfig.FollowStepDistance or 10)
+				return true
+			end
+		end
+	else
+		if random:NextNumber() <= (behaviorConfig.DelayedReactionChance or 0.2) then
+			task.wait(random:NextNumber(behaviorConfig.SuspiciousPauseMin or 0.8, behaviorConfig.SuspiciousPauseMax or 1.8))
+			faceRandomDirection(npc)
+			sendSuspicionIfSeen(npc, "BEHAVIOR FLAG: delayed response to movement nearby.")
+			return true
+		end
 	end
 
 	return false
+end
+
+local function panicNearbyNPCs(revealedNpc)
+	local revealConfig = context.Config.RevealPresentation or {}
+	local radius = revealConfig.PanicRadius or 34
+	local originCFrame = getRootCFrame(revealedNpc)
+
+	if not originCFrame then
+		return
+	end
+
+	for _, npc in ipairs(npcs) do
+		if npc ~= revealedNpc and not npc.Revealed and not npc.Eliminated then
+			local npcCFrame = getRootCFrame(npc)
+
+			if npcCFrame and (npcCFrame.Position - originCFrame.Position).Magnitude <= radius then
+				facePosition(npc, originCFrame.Position)
+
+				if random:NextNumber() <= (revealConfig.PanicMoveChance or 0.65) then
+					task.spawn(function()
+						moveNPCToSpawn(npc, chooseNearbySpawn(npc, false))
+					end)
+				end
+			end
+		end
+	end
 end
 
 local function createNPCModel(npc, spawnPart)
 	local model = Instance.new("Model")
 	model.Name = npc.Id
 	local bodyColor = bodyColors[((npc.Index - 1) % #bodyColors) + 1]
+	local skinColor = skinTones[((npc.Index - 1) % #skinTones) + 1]
 
 	local root = Instance.new("Part")
 	root.Name = "HumanoidRootPart"
@@ -343,7 +675,7 @@ local function createNPCModel(npc, spawnPart)
 	head.CanCollide = false
 	head.Shape = Enum.PartType.Ball
 	head.Size = Vector3.new(1.45, 1.75, 1.25)
-	head.Color = Color3.fromRGB(190, 176, 153)
+	head.Color = skinColor
 	head.Material = Enum.Material.SmoothPlastic
 	head.CFrame = root.CFrame + Vector3.new(0, 2.95, -0.04)
 	head.Parent = model
@@ -370,12 +702,12 @@ local function createNPCModel(npc, spawnPart)
 	leftArm.Size = Vector3.new(0.38, 3.05, 0.38)
 	leftArm.Color = bodyColor
 	leftArm.Material = Enum.Material.Fabric
-	leftArm.CFrame = root.CFrame * CFrame.new(-1.2, -0.15, 0)
+	leftArm.CFrame = root.CFrame * CFrame.new(-1.09, 0, 0)
 	leftArm.Parent = model
 
 	local rightArm = leftArm:Clone()
 	rightArm.Name = "RightArm"
-	rightArm.CFrame = root.CFrame * CFrame.new(1.45, 0.15, 0)
+	rightArm.CFrame = root.CFrame * CFrame.new(1.09, 0, 0)
 	rightArm.Parent = model
 
 	local leftLeg = Instance.new("Part")
@@ -385,13 +717,33 @@ local function createNPCModel(npc, spawnPart)
 	leftLeg.Size = Vector3.new(0.6, 2.2, 0.6)
 	leftLeg.Color = Color3.fromRGB(31, 38, 42)
 	leftLeg.Material = Enum.Material.Fabric
-	leftLeg.CFrame = root.CFrame * CFrame.new(-0.45, -2.45, 0)
+	leftLeg.CFrame = root.CFrame * CFrame.new(-0.5, -2.35, 0)
 	leftLeg.Parent = model
 
 	local rightLeg = leftLeg:Clone()
 	rightLeg.Name = "RightLeg"
-	rightLeg.CFrame = root.CFrame * CFrame.new(0.55, -2.25, 0)
+	rightLeg.CFrame = root.CFrame * CFrame.new(0.5, -2.35, 0)
 	rightLeg.Parent = model
+
+	local belt = Instance.new("Part")
+	belt.Name = "Belt"
+	belt.Anchored = true
+	belt.CanCollide = false
+	belt.Size = Vector3.new(1.86, 0.34, 0.92)
+	belt.Color = Color3.fromRGB(28, 24, 22)
+	belt.Material = Enum.Material.SmoothPlastic
+	belt.CFrame = root.CFrame * CFrame.new(0, -0.75, 0)
+	belt.Parent = model
+
+	local collar = Instance.new("Part")
+	collar.Name = "Collar"
+	collar.Anchored = true
+	collar.CanCollide = false
+	collar.Size = Vector3.new(1.2, 0.45, 0.88)
+	collar.Color = skinColor
+	collar.Material = Enum.Material.SmoothPlastic
+	collar.CFrame = root.CFrame * CFrame.new(0, 1.5, -0.04)
+	collar.Parent = model
 
 	local humanoid = Instance.new("Humanoid")
 	humanoid.DisplayName = npc.DisplayName
@@ -419,6 +771,16 @@ local function createNPCModel(npc, spawnPart)
 	npc.Spawned = true
 
 	return model
+end
+
+local function applyJuvenileVisualProfile(npc)
+	if not npc.IsJuvenileProfile or npc.JuvenileVisualApplied or not npc.Model then
+		return
+	end
+
+	local nestingConfig = context.Config.NestingEvent or {}
+	npc.JuvenileVisualApplied = true
+	npc.Model:ScaleTo(nestingConfig.ModelScale or 0.78)
 end
 
 local function ensureHealthBillboard(npc)
@@ -503,7 +865,9 @@ local function updateHealthBillboard(npc)
 	local ratio = math.clamp(health / maxHealth, 0, 1)
 
 	if label then
-		if npc.Eliminated then
+		if npc.Escaped then
+			label.Text = tostring(npc.AlienType or "ENTITY") .. " ESCAPED"
+		elseif npc.Eliminated then
 			label.Text = tostring(npc.AlienType or "ENTITY") .. " DOWN"
 		else
 			label.Text = tostring(npc.AlienType or "ENTITY") .. " " .. math.ceil(health) .. "/" .. math.ceil(maxHealth)
@@ -513,7 +877,9 @@ local function updateHealthBillboard(npc)
 	if barFill then
 		barFill.Size = UDim2.fromScale(ratio, 1)
 
-		if npc.Eliminated then
+		if npc.Escaped then
+			barFill.BackgroundColor3 = Color3.fromRGB(255, 88, 72)
+		elseif npc.Eliminated then
 			barFill.BackgroundColor3 = Color3.fromRGB(80, 90, 82)
 		elseif ratio <= 0.3 then
 			barFill.BackgroundColor3 = Color3.fromRGB(255, 102, 96)
@@ -551,6 +917,7 @@ function NPCService.SpawnRoundNPCs()
 			DisplayName = context.Config.NPCNames[index] or "Townsperson " .. index,
 			Spawned = false,
 			NextBehaviorAt = 0,
+			SuspicionScore = 0,
 			Traits = buildTraitMap(getDecoyTraits(index))
 		}
 
@@ -581,8 +948,8 @@ function NPCService.StartBehaviorLoop()
 
 				for _, npc in ipairs(npcs) do
 					if not npc.Revealed and not npc.Eliminated and now >= (npc.NextBehaviorAt or 0) then
-						if not runAlienTell(npc) then
-							if random:NextNumber() <= (behaviorConfig.RandomFacingChance or 0.45) then
+						if not runJuvenileBehavior(npc) and not runAlienTell(npc) and not runFalsePositiveBehavior(npc) then
+							if not runPlayerLookBehavior(npc) and random:NextNumber() <= (behaviorConfig.RandomFacingChance or 0.45) then
 								faceRandomDirection(npc)
 							end
 
@@ -590,7 +957,9 @@ function NPCService.StartBehaviorLoop()
 								task.wait(random:NextNumber(behaviorConfig.ShortPauseMin or 0.5, behaviorConfig.ShortPauseMax or 1.2))
 							end
 
-							if random:NextNumber() <= (behaviorConfig.ClusterChance or 0.1) then
+							if runSocialBehavior(npc) then
+								-- Social behavior already moved or faced the NPC.
+							elseif random:NextNumber() <= (behaviorConfig.ClusterChance or 0.1) then
 								moveNPCToSpawn(npc, chooseLandmarkSpawn())
 							elseif random:NextNumber() <= (behaviorConfig.MoveChance or 0.35) then
 								moveNPCToSpawn(npc, chooseNearbySpawn(npc, false))
@@ -620,6 +989,9 @@ function NPCService.GetPublicNPCs()
 			Spawned = npc.Spawned,
 			Revealed = npc.Revealed == true,
 			Eliminated = npc.Eliminated == true,
+			Escaped = npc.Escaped == true,
+			SuspicionScore = npc.Revealed and nil or math.floor((npc.SuspicionScore or 0) + 0.5),
+			SuspicionLabel = npc.Revealed and nil or getSuspicionLabel(npc.SuspicionScore or 0),
 			Health = npc.Revealed and npc.Health or nil,
 			MaxHealth = npc.Revealed and npc.MaxHealth or nil,
 			AlienType = npc.Revealed and npc.AlienType or nil
@@ -686,13 +1058,76 @@ function NPCService.GetPublicSuspects(discoveredTraits)
 					Id = npc.Id,
 					DisplayName = npc.DisplayName,
 					MatchedTraits = summary.Matched,
-					TotalTraits = summary.Total
+					TotalTraits = summary.Total,
+					SuspicionScore = math.floor((npc.SuspicionScore or 0) + 0.5),
+					SuspicionLabel = getSuspicionLabel(npc.SuspicionScore or 0)
 				})
 			end
 		end
 	end
 
 	return suspects
+end
+
+function NPCService.GetHighlySuspiciousNPCs()
+	local suspicionConfig = getSuspicionConfig()
+	local threshold = suspicionConfig.HighThreshold or 45
+	local limit = suspicionConfig.HighlySuspiciousLimit or 4
+	local suspicious = {}
+
+	for _, npc in ipairs(npcs) do
+		if not npc.Revealed and (npc.SuspicionScore or 0) >= threshold then
+			table.insert(suspicious, {
+				Id = npc.Id,
+				DisplayName = npc.DisplayName,
+				SuspicionScore = math.floor((npc.SuspicionScore or 0) + 0.5),
+				SuspicionLabel = getSuspicionLabel(npc.SuspicionScore or 0),
+				LastSuspicionReason = npc.LastSuspicionReason
+			})
+		end
+	end
+
+	table.sort(suspicious, function(left, right)
+		return left.SuspicionScore > right.SuspicionScore
+	end)
+
+	while #suspicious > limit do
+		table.remove(suspicious)
+	end
+
+	return suspicious
+end
+
+function NPCService.ApplyClueSuspicion(trait)
+	if not trait then
+		return
+	end
+
+	local suspicionConfig = getSuspicionConfig()
+	local amount = suspicionConfig.ClueMatchAmount or 16
+
+	for _, npc in ipairs(npcs) do
+		if npc.Traits and npc.Traits[trait] then
+			addSuspicion(npc, amount, "ClueMatch:" .. trait, false)
+		end
+	end
+end
+
+function NPCService.AddSuspicion(npcId, amount, reason)
+	return addSuspicion(NPCService.GetNPCById(npcId), amount, reason, true)
+end
+
+function NPCService.ApplyJuvenileProfile(npcId, nestingConfig)
+	local npc = NPCService.GetNPCById(npcId)
+
+	if not npc then
+		return nil
+	end
+
+	npc.IsJuvenileProfile = true
+	npc.MoveSpeedOverride = (nestingConfig or {}).JuvenileSpeed
+
+	return npc
 end
 
 function NPCService.MarkRevealed(npcId, alienType)
@@ -702,12 +1137,14 @@ function NPCService.MarkRevealed(npcId, alienType)
 		return nil
 	end
 
+	local wasRevealed = npc.Revealed == true
 	npc.Revealed = true
 	npc.AlienType = alienType
 	npc.Health = npc.Health or (context.Config.RevealedAlienAttack and context.Config.RevealedAlienAttack.MaxHealth) or 120
 	npc.MaxHealth = npc.MaxHealth or npc.Health
 
 	if npc.Model then
+		applyJuvenileVisualProfile(npc)
 		npc.Model.Name = npc.Id .. "_Revealed_" .. alienType
 
 		for _, descendant in ipairs(npc.Model:GetDescendants()) do
@@ -726,9 +1163,30 @@ function NPCService.MarkRevealed(npcId, alienType)
 		light.Range = 14
 		light.Shadows = true
 		light.Parent = npc.Model.PrimaryPart
+
+		if not wasRevealed then
+			local revealConfig = context.Config.RevealPresentation or {}
+			local highlight = Instance.new("Highlight")
+			highlight.Name = "RevealFlash"
+			highlight.FillColor = Color3.fromRGB(255, 255, 180)
+			highlight.OutlineColor = Color3.fromRGB(255, 80, 60)
+			highlight.FillTransparency = 0.25
+			highlight.OutlineTransparency = 0
+			highlight.Parent = npc.Model
+
+			task.delay(revealConfig.PanicHighlightDuration or 1.25, function()
+				if highlight.Parent then
+					highlight:Destroy()
+				end
+			end)
+		end
 	end
 
 	updateHealthBillboard(npc)
+
+	if not wasRevealed and context.Round.State == "Active" then
+		panicNearbyNPCs(npc)
+	end
 
 	return npc
 end
@@ -767,6 +1225,32 @@ function NPCService.MarkEliminated(npcId)
 				descendant.CanCollide = false
 			elseif descendant:IsA("PointLight") then
 				descendant.Enabled = false
+			end
+		end
+	end
+
+	return npc
+end
+
+function NPCService.MarkEscaped(npcId)
+	local npc = NPCService.GetNPCById(npcId)
+
+	if not npc then
+		return nil
+	end
+
+	npc.Escaped = true
+	updateHealthBillboard(npc)
+
+	if npc.Model then
+		for _, descendant in ipairs(npc.Model:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				descendant.Color = Color3.fromRGB(255, 88, 72)
+				descendant.Material = Enum.Material.Neon
+				descendant.Transparency = 0.45
+				descendant.CanCollide = false
+			elseif descendant:IsA("PointLight") then
+				descendant.Color = Color3.fromRGB(255, 88, 72)
 			end
 		end
 	end
@@ -833,6 +1317,7 @@ function NPCService.ClearNPCs()
 	table.clear(npcs)
 	table.clear(npcById)
 	table.clear(lastSuspicionByNpcId)
+	lastSuspicionSnapshotAt = 0
 end
 
 return NPCService
